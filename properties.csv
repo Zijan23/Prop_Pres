@@ -1,0 +1,21 @@
+id,address,latitude,longitude,status,vendor,notes
+P001,123 Main St Rajshahi,24.3705,88.6042,Vacant,VendorA,Lock change needed
+P002,78 College Rd Rajshahi,24.369,88.6075,Secured,VendorB,Grass cut done
+P003,15 Uposhohor Rd Rajshahi,24.3712,88.611,In Progress,VendorA,Awaiting approval
+P004,22 Talaimari St Rajshahi,24.3658,88.6135,Vacant,VendorC,Need window repair
+P005,55 Kazla Rd Rajshahi,24.3633,88.6168,Completed,VendorB,All tasks done
+P006,66 Binodpur Rd Rajshahi,24.3699,88.6015,Secured,VendorA,Lock updated
+P007,44 Railgate Rd Rajshahi,24.3721,88.5991,In Progress,VendorC,Trash removal pending
+P008,10 Padma Para Rajshahi,24.365,88.5959,Vacant,VendorB,Door damaged
+P009,87 Shaheb Bazar Rd Rajshahi,24.3738,88.5987,Completed,VendorA,Final report sent
+P010,12 Motihar Rd Rajshahi,24.3669,88.6095,Vacant,VendorB,Initial inspection needed
+P011,89 Kazla Rd Rajshahi,24.3619,88.616,In Progress,VendorA,Roof repair required
+P012,22 Talaimari Rd Rajshahi,24.3651,88.6118,Completed,VendorC,Inspection verified
+P013,33 University Gate Rajshahi,24.3724,88.6028,Secured,VendorA,Shutters installed
+P014,56 Bornali Mor Rajshahi,24.3742,88.6067,In Progress,VendorB,Painting pending
+P015,77 Station Rd Rajshahi,24.3761,88.5993,Vacant,VendorC,Overgrown vegetation
+P016,11 Shalbagan Rajshahi,24.3709,88.6084,Completed,VendorA,Vendor confirmed
+P017,92 Kazla Mor Rajshahi,24.3611,88.6149,In Progress,VendorB,Door lock replacement
+P018,45 Uposhohor Bazar Rajshahi,24.3726,88.6127,Secured,VendorA,Utilities disconnected
+P019,23 Motihar Mor Rajshahi,24.3664,88.6082,Vacant,VendorC,Board-up required
+P020,63 Kazla North Rajshahi,24.3604,88.6175,Completed,VendorB,All work approved
