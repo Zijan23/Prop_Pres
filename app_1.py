@@ -20,7 +20,8 @@ from shapely.geometry import Point
 st.set_page_config(page_title="Property Preservation Dashboard", layout="wide")
 
 st.title("🏠 GIS-Integrated Property Preservation Dashboard")
-st.subtitle("zoom in-out and click on the properties ")
+st.subheader("🔍 Zoom in/out and click on any property to see its details")
+
 
 # --- Admin upload section ---
 st.sidebar.header("Admin Controls")
