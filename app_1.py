@@ -69,5 +69,5 @@ for _, row in gdf.iterrows():
 
 st_folium(m, width=1300, height=650)
 
-!streamlit run /content/app_1_py.py
+
 
