@@ -70,6 +70,26 @@ for _, row in gdf.iterrows():
     ).add_to(marker_cluster)
 
 st_folium(m, width=1300, height=650)
-
+# --- Add custom legend (HTML injected) ---
+legend_html = """
+<div style="
+    position: fixed; 
+    bottom: 40px; left: 40px; width: 180px; height: 130px; 
+    background-color: white; 
+    border:2px solid grey; 
+    z-index:9999; 
+    font-size:14px; 
+    border-radius:8px;
+    padding:10px;
+    box-shadow:2px 2px 5px rgba(0,0,0,0.3);
+">
+<b>Status Legend</b><br>
+<span style="color:red;">&#9679;</span> Vacant<br>
+<span style="color:blue;">&#9679;</span> Secured<br>
+<span style="color:orange;">&#9679;</span> In Progress<br>
+<span style="color:green;">&#9679;</span> Completed
+</div>
+"""
+m.get_root().html.add_child(folium.Element(legend_html))
 
 
