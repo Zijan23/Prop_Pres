@@ -69,7 +69,7 @@ for _, row in gdf.iterrows():
         popup=folium.Popup(popup, max_width=250),
     ).add_to(marker_cluster)
 
-st_folium(m, width=1300, height=650)
+
 # --- Add custom legend (HTML injected) ---
 legend_html = """
 <div style="
@@ -92,4 +92,5 @@ legend_html = """
 """
 m.get_root().html.add_child(folium.Element(legend_html))
 
+st_folium(m, width=1300, height=650)
 
