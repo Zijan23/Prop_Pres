@@ -34,6 +34,23 @@ if uploaded_file:
 else:
     df = pd.read_csv("properties.csv")
 
+st.sidebar.title("📂 Resources")
+
+sections = ["VRM", "Cyprex", "Pricing", "Other"]
+selected_section = st.sidebar.selectbox("Select Section", sections)
+
+# Admin upload
+st.sidebar.markdown("### Upload a file")
+uploaded_resource = st.sidebar.file_uploader(f"Upload file to {selected_section}", type=["pdf", "docx", "xlsx", "csv", "txt"])
+
+if uploaded_resource:
+    save_path = f"resources/{selected_section}_{uploaded_resource.name}"
+    with open(save_path, "wb") as f:
+        f.write(uploaded_resource.getbuffer())
+    st.sidebar.success(f"✅ File uploaded to {selected_section} section!")
+
+    
+
 # --- Convert to GeoDataFrame ---
 gdf = gpd.GeoDataFrame(
     df, geometry=[Point(xy) for xy in zip(df["longitude"], df["latitude"])], crs="EPSG:4326"
