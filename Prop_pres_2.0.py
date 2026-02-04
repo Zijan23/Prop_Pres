@@ -81,29 +81,28 @@ status_colors = {
 marker_cluster = MarkerCluster().add_to(m)
 
 for _, row in gdf.iterrows():
-    popup = f"""
-    <b>W/O Number:</b> {row.get('W/O Number', '')}<br>
-    <b>Address:</b> {row.get('address', '')}<br>
-    <b>Latitude:</b> {row.get('latitude', '')}<br>
-    <b>Longitude:</b> {row.get('longitude', '')}<br>
-    <b>Status:</b> {row.get('status', '')}<br>
-    <b>Vendor:</b> {row.get('vendor', '')}<br>
-    <b>W/O Type:</b> {row.get('W/O Type', '')}<br>
-    <b>Due Date:</b> {row.get('Due Date', '')}<br>
-    <b>Complete Date:</b> {row.get('Complete Date', '')}<br>
-    <b>Notes:</b> {row.get('notes', '')}<br>
-    <b>Detailed Services:</b> {row.get('Detailed Services', '')}
-    """
-    folium.CircleMarker(
-        location=[row.geometry.y, row.geometry.x],
-        radius=6,
-        color=status_colors.get(row.get("status", ""), "gray"),
-        fill=True,
-        fill_color=status_colors.get(row.get("status", ""), "gray"),
-        fill_opacity=0.9,
-        popup=folium.Popup(popup, max_width=250),
-    ).add_to(marker_cluster)
+    # Create a clickable hyperlink for the "Detailed Services" column
+    detailed_services_link = row.get("Detailed Services", "")
+    if pd.notna(detailed_services_link) and str(detailed_services_link).startswith("http"):
+        detailed_services_html = f'<a href="{detailed_services_link}" target="_blank">Open Details</a>'
+    else:
+        detailed_services_html = str(detailed_services_link)
 
+    popup = f"""
+    <div style='font-size:14px;'>
+        <b>W/O Number:</b> {row.get('W/O Number', '')}<br>
+        <b>Address:</b> {row.get('address', '')}<br>
+        <b>Latitude:</b> {row.get('latitude', '')}<br>
+        <b>Longitude:</b> {row.get('longitude', '')}<br>
+        <b>Status:</b> {row.get('status', '')}<br>
+        <b>Vendor:</b> {row.get('vendor', '')}<br>
+        <b>W/O Type:</b> {row.get('W/O Type', '')}<br>
+        <b>Due Date:</b> {row.get('Due Date', '')}<br>
+        <b>Complete Date:</b> {row.get('Complete Date', '')}<br>
+        <b>Notes:</b> {row.get('notes', '')}<br>
+        <b>Detailed Services:</b> {detailed_services_html}
+    </div>
+    """
 # --- Add Legend ---
 legend_html = """
 <div style="
