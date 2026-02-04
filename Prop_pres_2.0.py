@@ -82,11 +82,17 @@ marker_cluster = MarkerCluster().add_to(m)
 
 for _, row in gdf.iterrows():
     popup = f"""
-    <b>ID:</b> {row.get('id', '')}<br>
+    <b>W/O Number:</b> {row.get('W/O Number', '')}<br>
     <b>Address:</b> {row.get('address', '')}<br>
+    <b>Latitude:</b> {row.get('latitude', '')}<br>
+    <b>Longitude:</b> {row.get('longitude', '')}<br>
     <b>Status:</b> {row.get('status', '')}<br>
     <b>Vendor:</b> {row.get('vendor', '')}<br>
-    <b>Notes:</b> {row.get('notes', '')}
+    <b>W/O Type:</b> {row.get('W/O Type', '')}<br>
+    <b>Due Date:</b> {row.get('Due Date', '')}<br>
+    <b>Complete Date:</b> {row.get('Complete Date', '')}<br>
+    <b>Notes:</b> {row.get('notes', '')}<br>
+    <b>Detailed Services:</b> {row.get('Detailed Services', '')}
     """
     folium.CircleMarker(
         location=[row.geometry.y, row.geometry.x],
