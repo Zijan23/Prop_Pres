@@ -80,11 +80,23 @@ status_colors = {
 
 marker_cluster = MarkerCluster().add_to(m)
 
+# Clean and validate numeric coordinates
+df["latitude"] = pd.to_numeric(df["latitude"], errors="coerce")
+df["longitude"] = pd.to_numeric(df["longitude"], errors="coerce")
+df = df.dropna(subset=["latitude", "longitude"])
+
+# Convert to GeoDataFrame
+gdf = gpd.GeoDataFrame(
+    df,
+    geometry=[Point(xy) for xy in zip(df["longitude"], df["latitude"])],
+    crs="EPSG:4326"
+)
+
+# --- Draw map markers ---
 for _, row in gdf.iterrows():
-    # Create a clickable hyperlink for the "Detailed Services" column
     detailed_services_link = row.get("Detailed Services", "")
     if pd.notna(detailed_services_link) and str(detailed_services_link).startswith("http"):
-        detailed_services_html = f'<a href="{detailed_services_link}" target="_blank">Open Details</a>'
+        detailed_services_html = f'<a href="{detailed_services_link}" target="_blank" style="color:#1E90FF;">Open Details</a>'
     else:
         detailed_services_html = str(detailed_services_link)
 
@@ -103,6 +115,17 @@ for _, row in gdf.iterrows():
         <b>Detailed Services:</b> {detailed_services_html}
     </div>
     """
+
+    folium.CircleMarker(
+        location=[row.geometry.y, row.geometry.x],
+        radius=6,
+        color=status_colors.get(row.get("status", ""), "gray"),
+        fill=True,
+        fill_color=status_colors.get(row.get("status", ""), "gray"),
+        fill_opacity=0.9,
+        popup=folium.Popup(popup, max_width=300),
+    ).add_to(marker_cluster)
+
 # --- Add Legend ---
 legend_html = """
 <div style="
