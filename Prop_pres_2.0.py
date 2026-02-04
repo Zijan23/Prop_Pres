@@ -97,16 +97,16 @@ gdf = gpd.GeoDataFrame(
 for _, row in gdf.iterrows():
     
 # ── New version ──
-detailed_url = row.get("Detailed Services URL", row.get("Detailed Services", ""))  # fallback to old column if needed
+    detailed_url = row.get("Detailed Services URL", row.get("Detailed Services", ""))  # fallback to old column if needed
 
-if pd.notna(detailed_url) and str(detailed_url).strip().startswith(("http://", "https://")):
-    detailed_services_html = (
-        '<a href="{url}" target="_blank" style="color:#1E90FF; text-decoration:underline; font-weight:bold;">'
-        'Click here'
-        '</a>'
-    ).format(url=detailed_url.strip())
-else:
-    detailed_services_html = "No link available"
+    if pd.notna(detailed_url) and str(detailed_url).strip().startswith(("http://", "https://")):
+        detailed_services_html = (
+            '<a href="{url}" target="_blank" style="color:#1E90FF; text-decoration:underline; font-weight:bold;">'
+            'Click here'
+            '</a>'
+        ).format(url=detailed_url.strip())
+    else:
+        detailed_services_html = "No link available"
 
 # --- Draw map markers ---
 for _, row in gdf.iterrows():
