@@ -8,6 +8,7 @@ import folium
 from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 from shapely.geometry import Point
+from folium import IFrame
 import os
 
 # --- Streamlit Page Config ---
@@ -100,27 +101,32 @@ for _, row in gdf.iterrows():
     else:
         detailed_services_html = str(detailed_services_link)
 
-from folium import IFrame
+# --- Draw map markers ---
+for _, row in gdf.iterrows():
+    detailed_services_link = row.get("Detailed Services", "")
+    if pd.notna(detailed_services_link) and str(detailed_services_link).startswith("http"):
+        detailed_services_html = f'<a href="{detailed_services_link}" target="_blank" style="color:#1E90FF;">Open Details</a>'
+    else:
+        detailed_services_html = str(detailed_services_link)
 
-html = f"""
-<div style='font-size:14px;'>
-    <b>W/O Number:</b> {row.get('W/O Number', '')}<br>
-    <b>Address:</b> {row.get('address', '')}<br>
-    <b>Latitude:</b> {row.get('latitude', '')}<br>
-    <b>Longitude:</b> {row.get('longitude', '')}<br>
-    <b>Status:</b> {row.get('status', '')}<br>
-    <b>Vendor:</b> {row.get('vendor', '')}<br>
-    <b>W/O Type:</b> {row.get('W/O Type', '')}<br>
-    <b>Due Date:</b> {row.get('Due Date', '')}<br>
-    <b>Complete Date:</b> {row.get('Complete Date', '')}<br>
-    <b>Notes:</b> {row.get('notes', '')}<br>
-    <b>Detailed Services:</b> {detailed_services_html}
-</div>
-"""
+    html = f"""
+    <div style='font-size:14px;'>
+        <b>W/O Number:</b> {row.get('W/O Number', '')}<br>
+        <b>Address:</b> {row.get('address', '')}<br>
+        <b>Latitude:</b> {row.get('latitude', '')}<br>
+        <b>Longitude:</b> {row.get('longitude', '')}<br>
+        <b>Status:</b> {row.get('status', '')}<br>
+        <b>Vendor:</b> {row.get('vendor', '')}<br>
+        <b>W/O Type:</b> {row.get('W/O Type', '')}<br>
+        <b>Due Date:</b> {row.get('Due Date', '')}<br>
+        <b>Complete Date:</b> {row.get('Complete Date', '')}<br>
+        <b>Notes:</b> {row.get('notes', '')}<br>
+        <b>Detailed Services:</b> {detailed_services_html}
+    </div>
+    """
 
-iframe = IFrame(html=html, width=300, height=200)
-popup = folium.Popup(iframe, max_width=300)
-
+    iframe = IFrame(html=html, width=300, height=200)
+    popup = folium.Popup(iframe, max_width=300)
 
     folium.CircleMarker(
         location=[row.geometry.y, row.geometry.x],
@@ -129,8 +135,9 @@ popup = folium.Popup(iframe, max_width=300)
         fill=True,
         fill_color=status_colors.get(row.get("status", ""), "gray"),
         fill_opacity=0.9,
-        popup=folium.Popup(popup, max_width=300),
+        popup=popup,
     ).add_to(marker_cluster)
+
 
 # --- Add Legend ---
 legend_html = """
