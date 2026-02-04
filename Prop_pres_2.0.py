@@ -100,21 +100,27 @@ for _, row in gdf.iterrows():
     else:
         detailed_services_html = str(detailed_services_link)
 
-    popup = f"""
-    <div style='font-size:14px;'>
-        <b>W/O Number:</b> {row.get('W/O Number', '')}<br>
-        <b>Address:</b> {row.get('address', '')}<br>
-        <b>Latitude:</b> {row.get('latitude', '')}<br>
-        <b>Longitude:</b> {row.get('longitude', '')}<br>
-        <b>Status:</b> {row.get('status', '')}<br>
-        <b>Vendor:</b> {row.get('vendor', '')}<br>
-        <b>W/O Type:</b> {row.get('W/O Type', '')}<br>
-        <b>Due Date:</b> {row.get('Due Date', '')}<br>
-        <b>Complete Date:</b> {row.get('Complete Date', '')}<br>
-        <b>Notes:</b> {row.get('notes', '')}<br>
-        <b>Detailed Services:</b> {detailed_services_html}
-    </div>
-    """
+from folium import IFrame
+
+html = f"""
+<div style='font-size:14px;'>
+    <b>W/O Number:</b> {row.get('W/O Number', '')}<br>
+    <b>Address:</b> {row.get('address', '')}<br>
+    <b>Latitude:</b> {row.get('latitude', '')}<br>
+    <b>Longitude:</b> {row.get('longitude', '')}<br>
+    <b>Status:</b> {row.get('status', '')}<br>
+    <b>Vendor:</b> {row.get('vendor', '')}<br>
+    <b>W/O Type:</b> {row.get('W/O Type', '')}<br>
+    <b>Due Date:</b> {row.get('Due Date', '')}<br>
+    <b>Complete Date:</b> {row.get('Complete Date', '')}<br>
+    <b>Notes:</b> {row.get('notes', '')}<br>
+    <b>Detailed Services:</b> {detailed_services_html}
+</div>
+"""
+
+iframe = IFrame(html=html, width=300, height=200)
+popup = folium.Popup(iframe, max_width=300)
+
 
     folium.CircleMarker(
         location=[row.geometry.y, row.geometry.x],
