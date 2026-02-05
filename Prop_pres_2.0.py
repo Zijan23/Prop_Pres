@@ -246,9 +246,9 @@ search_layer = folium.FeatureGroup(name="Search Layer")
 for _, row in gdf.iterrows():
     popup_html = f"""
     <b>W/O Number:</b> {row.get('W/O Number', '')}<br>
-    <b>Address:</b> {row.get('address', '')}<br>
-    <b>Status:</b> {row.get('status', '')}<br>
-    <b>Vendor:</b> {row.get('vendor', '')}<br>
+    <b>Address:</b> {row.get('Address', '')}<br>
+    <b>Status:</b> {row.get('Status', '')}<br>
+    <b>Vendor:</b> {row.get('Vendor', '')}<br>
     """
     folium.Marker(
         [row.geometry.y, row.geometry.x],
