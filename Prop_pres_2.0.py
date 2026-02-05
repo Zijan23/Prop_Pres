@@ -1,4 +1,4 @@
-# -*- coding: prop -*-
+# -*- coding: utf-8 -*-
 """app_1 - Property Preservation Dashboard"""
 
 import streamlit as st
