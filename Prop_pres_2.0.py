@@ -30,7 +30,7 @@ try:
     st.success("✅ Live property data loaded from Google Sheets")
 except Exception as e:
     st.error(f"❌ Failed to load Google Sheet: {e}")
-    df = pd.DataFrame(columns=["W/O Number","address","latitude","longitude","status","vendor","W/O Type","Due Date","Complete Date", "notes", "Detailed Services"])
+    df = pd.DataFrame(columns=["W/O Number","address","latitude","longitude","status","vendor","W/O Type","Due Date","Complete Date", "notes", "Detailed Services", "Attach Photos"])
 
 # --- Sidebar: Admin Controls & Resources ---
 st.sidebar.header("Admin Controls")
