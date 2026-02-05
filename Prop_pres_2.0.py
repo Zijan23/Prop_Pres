@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# -*- coding: prop -*-
 """app_1 - Property Preservation Dashboard"""
 
 import streamlit as st
@@ -70,13 +70,13 @@ if not gdf.empty:
 else:
     map_center = [24.0, 90.0]  # Fallback: Bangladesh center
 
-# Your OpenWeatherMap API key (sign up at openweathermap.org for free)
-OWM_API_KEY = "9ab014df3ac7ed08dc86c07d88a7941b"  # Replace!
+#  OpenWeatherMap API key (sign up at openweathermap.org for free)
+OWM_API_KEY = "9ab014df3ac7ed08dc86c07d88a7941b"  
 
-# Your TomTom API key (optional, for traffic; sign up at developer.tomtom.com)
-TOMTOM_API_KEY = "kx2GxCYzq5RP8TEsePw7OXVpwF5VYv2f"  # Replace or remove if not using
+#  TomTom API key (optional, for traffic; sign up at developer.tomtom.com)
+TOMTOM_API_KEY = "kx2GxCYzq5RP8TEsePw7OXVpwF5VYv2f" 
 
-m = folium.Map(location=map_center, zoom_start=13, tiles=None)  # Start with no base tiles (we'll add them below)
+m = folium.Map(location=map_center, zoom_start=13, tiles=None)  # Start with no base tiles 
 
 # --- Add Basemaps (mutually exclusive; radio buttons in control) ---
 # Current default: CartoDB Positron (clean, light)
@@ -94,11 +94,11 @@ folium.TileLayer(
 ).add_to(m)
 
 # Alternative terrain basemap (for visual variety, e.g., hilly routes)
-folium.TileLayer(
-    tiles="Stamen Terrain",
-    name="Terrain Map",
-    attr="Stamen Design"
-).add_to(m)
+#folium.TileLayer(
+#    tiles="Stamen Terrain",
+#    name="Terrain Map",
+#    attr="Stamen Design"
+#).add_to(m)
 
 # --- Add Overlays (toggle on/off; checkboxes in control) ---
 # Weather: Clouds (from OpenWeatherMap)
