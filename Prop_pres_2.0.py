@@ -68,16 +68,94 @@ else:
 if not gdf.empty:
     map_center = [gdf.geometry.y.mean(), gdf.geometry.x.mean()]
 else:
-    map_center = [24.0, 90.0]  # fallback: Bangladesh center
+    map_center = [24.0, 90.0]  # Fallback: Bangladesh center
 
-m = folium.Map(location=map_center, zoom_start=13, tiles="CartoDB positron")
+# Your OpenWeatherMap API key (sign up at openweathermap.org for free)
+OWM_API_KEY = "9ab014df3ac7ed08dc86c07d88a7941b"  # Replace!
+
+# Your TomTom API key (optional, for traffic; sign up at developer.tomtom.com)
+TOMTOM_API_KEY = "kx2GxCYzq5RP8TEsePw7OXVpwF5VYv2f"  # Replace or remove if not using
+
+m = folium.Map(location=map_center, zoom_start=13, tiles=None)  # Start with no base tiles (we'll add them below)
+
+# --- Add Basemaps (mutually exclusive; radio buttons in control) ---
+# Current default: CartoDB Positron (clean, light)
+folium.TileLayer(
+    tiles="CartoDB positron",
+    name="Light Map (Default)",
+    attr="CartoDB"
+).add_to(m)
+
+# Route/Navigation: OpenStreetMap (emphasizes roads, good for routing)
+folium.TileLayer(
+    tiles="OpenStreetMap",
+    name="Routes & Navigation (OSM)",
+    attr="OpenStreetMap contributors"
+).add_to(m)
+
+# Alternative terrain basemap (for visual variety, e.g., hilly routes)
+folium.TileLayer(
+    tiles="Stamen Terrain",
+    name="Terrain Map",
+    attr="Stamen Design"
+).add_to(m)
+
+# --- Add Overlays (toggle on/off; checkboxes in control) ---
+# Weather: Clouds (from OpenWeatherMap)
+folium.TileLayer(
+    tiles=f"http://tile.openweathermap.org/map/clouds_new/{{z}}/{{x}}/{{y}}.png?appid={OWM_API_KEY}",
+    attr="OpenWeatherMap",
+    name="Weather: Clouds",
+    overlay=True,
+    control=True,
+    opacity=0.6  # Semi-transparent so markers show through
+).add_to(m)
+
+# Weather: Precipitation (from OpenWeatherMap)
+folium.TileLayer(
+    tiles=f"http://tile.openweathermap.org/map/precipitation_new/{{z}}/{{x}}/{{y}}.png?appid={OWM_API_KEY}",
+    attr="OpenWeatherMap",
+    name="Weather: Precipitation",
+    overlay=True,
+    control=True,
+    opacity=0.6
+).add_to(m)
+
+# Traffic: Real-time flow (from TomTom; optional)
+if TOMTOM_API_KEY:  # Only add if you have a key
+    folium.TileLayer(
+        tiles=f"https://api.tomtom.com/traffic/map/4/tile/flow/relative/{{z}}/{{x}}/{{y}}.png?key={TOMTOM_API_KEY}",
+        attr="TomTom",
+        name="Traffic Flow",
+        overlay=True,
+        control=True,
+        opacity=0.7
+    ).add_to(m)
+
+# Cyclones: Add as GeoJSON overlay (example historical tracks; fetch real-time if needed)
+# Sample public GeoJSON URL (NOAA Atlantic hurricanes; replace with Bangladesh/Indian Ocean data, e.g., from IMD or GDACS)
+cyclone_geojson_url = "https://www.nhc.noaa.gov/gis/best_track/al2023_best_track.zip"  # This is a ZIP—use a direct GeoJSON if possible
+# For simplicity, assume you have a GeoJSON file or URL; here's how to add it
+folium.GeoJson(
+    cyclone_geojson_url,  # Or local file: "path/to/cyclone_tracks.geojson"
+    name="Cyclones/Hurricanes",
+    style_function=lambda feature: {
+        'color': 'red',
+        'weight': 2,
+        'dashArray': '5, 5'
+    },
+    overlay=True,
+    control=True
+).add_to(m)
+
+#status colors
 
 status_colors = {
     "Overdue": "red",
     "Bid request": "orange",
     "Biweekly": "green"
 }
-
+#marker cluster
 marker_cluster = MarkerCluster().add_to(m)
 
 # Clean and validate numeric coordinates
@@ -179,6 +257,9 @@ legend_html = """
 </div>
 """
 m.get_root().html.add_child(folium.Element(legend_html))
+
+# --- Add Layer Control (clickable options in top-right corner) ---
+folium.LayerControl(collapsed=False).add_to(m)  # collapsed=False keeps it open by default
 
 # --- Render Map ---
 st_folium(m, width=1300, height=650)
