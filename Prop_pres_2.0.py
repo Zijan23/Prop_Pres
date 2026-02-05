@@ -10,6 +10,7 @@ from streamlit_folium import st_folium
 from shapely.geometry import Point
 from folium import IFrame
 import os
+from folium.plugins import Search
 
 # --- Streamlit Page Config ---
 st.set_page_config(page_title="Property Preservation Live Report", layout="wide")
@@ -239,6 +240,33 @@ for _, row in gdf.iterrows():
         popup=popup,
     ).add_to(marker_cluster)
 
+# searchable properties
+search_layer = folium.FeatureGroup(name="Search Layer")
+
+for _, row in gdf.iterrows():
+    popup_html = f"""
+    <b>W/O Number:</b> {row.get('W/O Number', '')}<br>
+    <b>Address:</b> {row.get('address', '')}<br>
+    <b>Status:</b> {row.get('status', '')}<br>
+    <b>Vendor:</b> {row.get('vendor', '')}<br>
+    """
+    folium.Marker(
+        [row.geometry.y, row.geometry.x],
+        popup=popup_html,
+        tooltip=row.get('address', ''),   # text on hover
+    ).add_to(search_layer)
+
+search_layer.add_to(m)
+
+# Add the Search control (searches by address)
+Search(
+    layer=search_layer,
+    search_label='address',   # column to search
+    placeholder='🔍 Search by address or W/O number',
+    collapsed=False,          # keep search box visible
+    zoom=16,                  # zoom level when found
+    position='topleft'
+).add_to(m)
 
 # --- Add Legend ---
 legend_html = """
