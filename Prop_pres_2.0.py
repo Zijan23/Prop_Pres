@@ -115,6 +115,19 @@ for _, row in gdf.iterrows():
         detailed_services_html = f'<a href="{detailed_services_link}" target="_blank" style="color:#1E90FF;">Open Details</a>'
     else:
         detailed_services_html = str(detailed_services_link)
+    attach_photos_link = row.get("Attach Photos", "")
+
+    if pd.notna(attach_photos_link) and "drive.google.com/drive/folders/" in str(attach_photos_link):
+        photos_html = (
+            '<br><b>Attach Photos:</b> '
+            '<a href="{url}" target="_blank" '
+            'style="color:#1E90FF; text-decoration:underline; font-weight:bold;">'
+            'Upload photos here →'
+            '</a> (Google sign-in required)'
+        ).format(url=attach_photos_link.strip())
+    else:
+        photos_html = '<br><b>Attach Photos:</b> No upload link available'
+    
 
     html = f"""
     <div style='font-size:14px;'>
@@ -128,7 +141,8 @@ for _, row in gdf.iterrows():
         <b>Due Date:</b> {row.get('Due Date', '')}<br>
         <b>Complete Date:</b> {row.get('Complete Date', '')}<br>
         <b>Notes:</b> {row.get('notes', '')}<br>
-        <b>Detailed Services:</b> {detailed_services_html}
+        <b>Detailed Services:</b> {detailed_services_html} <br>
+        {photos_html}
     </div>
     """
 
