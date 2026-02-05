@@ -246,9 +246,9 @@ search_layer = folium.FeatureGroup(name="Search Layer")
 for _, row in gdf.iterrows():
     popup_html = f"""
     <b>W/O Number:</b> {row.get('W/O Number', '')}<br>
-    <b>Address:</b> {row.get('Address', '')}<br>
-    <b>Status:</b> {row.get('Status', '')}<br>
-    <b>Vendor:</b> {row.get('Vendor', '')}<br>
+    <b>Address:</b> {row.get('address', '')}<br>
+    <b>Status:</b> {row.get('status', '')}<br>
+    <b>Vendor:</b> {row.get('vendor', '')}<br>
     """
     folium.Marker(
         [row.geometry.y, row.geometry.x],
@@ -261,7 +261,7 @@ search_layer.add_to(m)
 # Add the Search control (searches by address)
 Search(
     layer=search_layer,
-    search_label='Address',   # column to search
+    search_label='address',   # column to search
     placeholder='🔍 Search by address or W/O number',
     collapsed=False,          # keep search box visible
     zoom=16,                  # zoom level when found
