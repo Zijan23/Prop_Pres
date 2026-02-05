@@ -73,10 +73,9 @@ else:
 m = folium.Map(location=map_center, zoom_start=13, tiles="CartoDB positron")
 
 status_colors = {
-    "Vacant": "red",
-    "Secured": "blue",
-    "In Progress": "orange",
-    "Completed": "green"
+    "Overdue": "red",
+    "Bid request": "orange",
+    "Biweekly": "green"
 }
 
 marker_cluster = MarkerCluster().add_to(m)
