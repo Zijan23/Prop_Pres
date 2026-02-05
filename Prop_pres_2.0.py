@@ -240,32 +240,27 @@ for _, row in gdf.iterrows():
         popup=popup,
     ).add_to(marker_cluster)
 
-# searchable properties
-search_layer = folium.FeatureGroup(name="Search Layer")
+# Create a searchable button FeatureGroup from GeoDataFrame
 
-for _, row in gdf.iterrows():
-    popup_html = f"""
-    <b>W/O Number:</b> {row.get('W/O Number', '')}<br>
-    <b>Address:</b> {row.get('address', '')}<br>
-    <b>Status:</b> {row.get('status', '')}<br>
-    <b>Vendor:</b> {row.get('vendor', '')}<br>
-    """
-    folium.Marker(
-        [row.geometry.y, row.geometry.x],
-        popup=popup_html,
-        tooltip=row.get('address', ''),   # text on hover
-    ).add_to(search_layer)
+searchable = gdf.copy()
+searchable = searchable.dropna(subset=["latitude", "longitude"])
 
-search_layer.add_to(m)
+# Prepare GeoJSON-like data for the Search plugin
+geojson_layer = folium.GeoJson(
+    searchable,
+    name="Searchable Properties",
+    tooltip=folium.features.GeoJsonTooltip(fields=["address", "W/O Number"], aliases=["Address:", "W/O Number:"])
+).add_to(m)
 
-# Add the Search control (searches by address)
+# Add the Search control
 Search(
-    layer=search_layer,
-    search_label='address',   # column to search
-    placeholder='🔍 Search by address or W/O number',
-    collapsed=False,          # keep search box visible
-    zoom=16,                  # zoom level when found
-    position='topleft'
+    layer=geojson_layer,
+    geom_type='Point',
+    search_label='address',          # column name in your DataFrame
+    placeholder='🔍 Search by address or W/O number...',
+    collapsed=False,
+    search_zoom=16,                  # zoom to 16 when found
+    position='topleft',
 ).add_to(m)
 
 # --- Add Legend ---
