@@ -136,17 +136,15 @@ if TOMTOM_API_KEY:  # Only add if you have a key
 # Sample public GeoJSON URL (NOAA Atlantic hurricanes; replace with Bangladesh/Indian Ocean data, e.g., from IMD or GDACS)
 cyclone_geojson_url = "https://www.nhc.noaa.gov/gis/best_track/al2023_best_track.zip"  # This is a ZIP—use a direct GeoJSON if possible
 # For simplicity, assume you have a GeoJSON file or URL; here's how to add it
+cyclone_geojson_url = "https://raw.githubusercontent.com/python-visualization/folium-example-data/main/cyclone_tracks.geojson"
 folium.GeoJson(
-    cyclone_geojson_url,  # Or local file: "path/to/cyclone_tracks.geojson"
+    cyclone_geojson_url,
     name="Cyclones/Hurricanes",
-    style_function=lambda feature: {
-        'color': 'red',
-        'weight': 2,
-        'dashArray': '5, 5'
-    },
+    style_function=lambda feature: {'color': 'red', 'weight': 2},
     overlay=True,
     control=True
 ).add_to(m)
+
 
 #status colors
 
