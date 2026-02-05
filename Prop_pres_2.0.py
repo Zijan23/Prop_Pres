@@ -261,7 +261,7 @@ search_layer.add_to(m)
 # Add the Search control (searches by address)
 Search(
     layer=search_layer,
-    search_label='address',   # column to search
+    search_label='Address',   # column to search
     placeholder='🔍 Search by address or W/O number',
     collapsed=False,          # keep search box visible
     zoom=16,                  # zoom level when found
