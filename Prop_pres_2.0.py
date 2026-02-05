@@ -119,7 +119,7 @@ for _, row in gdf.iterrows():
 
     if pd.notna(attach_photos_link) and "drive.google.com/drive/folders/" in str(attach_photos_link):
         photos_html = (
-            '<br><b>Attach Photos:</b> '
+            '<b>Attach Photos:</b> '
             '<a href="{url}" target="_blank" '
             'style="color:#1E90FF; text-decoration:underline; font-weight:bold;">'
             'Upload photos here →'
