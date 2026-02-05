@@ -123,7 +123,7 @@ for _, row in gdf.iterrows():
             '<a href="{url}" target="_blank" '
             'style="color:#1E90FF; text-decoration:underline; font-weight:bold;">'
             'Upload photos here →'
-            '</a> (Google sign-in required)'
+            '</a>'
         ).format(url=attach_photos_link.strip())
     else:
         photos_html = '<br><b>Attach Photos:</b> No upload link available'
@@ -141,7 +141,7 @@ for _, row in gdf.iterrows():
         <b>Due Date:</b> {row.get('Due Date', '')}<br>
         <b>Complete Date:</b> {row.get('Complete Date', '')}<br>
         <b>Notes:</b> {row.get('notes', '')}<br>
-        <b>Detailed Services:</b> {detailed_services_html} <br>
+        <b>Detailed Services:</b> {detailed_services_html}<br>
         {photos_html}
     </div>
     """
