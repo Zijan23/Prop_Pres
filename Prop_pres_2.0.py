@@ -173,10 +173,9 @@ legend_html = """
     box-shadow:2px 2px 5px rgba(0,0,0,0.3);
 ">
 <b>Status Legend</b><br>
-<span style="color:red;">&#9679;</span> Vacant<br>
-<span style="color:blue;">&#9679;</span> Secured<br>
-<span style="color:orange;">&#9679;</span> In Progress<br>
-<span style="color:green;">&#9679;</span> Completed
+<span style="color:red;">&#9679;</span> Overdue<br>
+<span style="color:orange;">&#9679;</span> Bid request<br>
+<span style="color:green;">&#9679;</span> Biweekly
 </div>
 """
 m.get_root().html.add_child(folium.Element(legend_html))
