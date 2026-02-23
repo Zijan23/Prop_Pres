@@ -144,37 +144,34 @@ with left_col:
         except Exception:
             df_status_sorted = df_status.copy()
 
-        # Show up to 12 items
-        for _, row in df_status_sorted.head(12).iterrows():
-            p = safe_get(df_status_sorted.loc[[_] if False else df_status_sorted.index, status_col_map], status_col_map, "Property", "")
-            # build fields robustly using safe_get from the row
-            prop = row.get(status_col_map.get("property", "Property"), row.get("Property", ""))
-            crew = row.get(status_col_map.get("crew name", "CREW NAME"), row.get("CREW NAME", ""))
-            due = row.get(status_col_map.get("due date", "Due date"), row.get("Due date", ""))
-            stat = row.get(status_col_map.get("status 1", "Status 1"), row.get("Status 1", ""))
-            reason = row.get(status_col_map.get("reason", "Reason"), row.get("Reason", ""))
+ 
+for _, row in df_status_sorted.head(12).iterrows():
+    prop = row.get(status_col_map.get("property", "Property"), row.get("Property", ""))
+    crew = row.get(status_col_map.get("crew name", "CREW NAME"), row.get("CREW NAME", ""))
+    due = row.get(status_col_map.get("due date", "Due date"), row.get("Due date", ""))
+    stat = row.get(status_col_map.get("status 1", "Status 1"), row.get("Status 1", ""))
+    reason = row.get(status_col_map.get("reason", "Reason"), row.get("Reason", ""))
 
-            # color by status
-            stat_low = str(stat).lower()
-            if "complete" in stat_low:
-                color = "#2ecc71"
-            elif "overdue" in stat_low or "late" in stat_low:
-                color = "#e74c3c"
-            else:
-                color = "#f39c12"
+    # color by status
+    stat_low = str(stat).lower()
+    if "complete" in stat_low:
+        color = "#2ecc71"
+    elif "overdue" in stat_low or "late" in stat_low:
+        color = "#e74c3c"
+    else:
+        color = "#f39c12"
 
-            st.markdown(
-                f"""
-                <div style="background-color:{color}15; border-left:4px solid {color}; padding:8px; border-radius:6px; margin-bottom:8px;">
-                    <b>🏠 {prop}</b><br>
-                    👷 {crew} &nbsp; • &nbsp; 📅 {due}<br>
-                    <b>Status:</b> {stat}<br>
-                    <small>💬 {reason}</small>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
+    st.markdown(
+        f"""
+        <div style="background-color:{color}15; border-left:4px solid {color}; padding:8px; border-radius:6px; margin-bottom:8px;">
+            <b>🏠 {prop}</b><br>
+            👷 {crew} &nbsp; • &nbsp; 📅 {due}<br>
+            <b>Status:</b> {stat}<br>
+            <small>💬 {reason}</small>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 # ---------- RIGHT: Map ----------
 with right_col:
     # create map center
