@@ -133,45 +133,83 @@ with left_col:
 
         st.markdown("---")
 
-        # Latest updates (scrollable area)
-        st.markdown("### 📰 Latest Property Updates")
-        # show top 10 most recent rows — if there is a date column we could sort by it; otherwise show tail
-        # We will try to parse Due date to datetime to sort by it (most urgent first)
+        # --- Latest Property Updates (only from specific tab gid=160282702) ---
+
+st.markdown("### 📰 Latest Property Updates")
+
+# Define the direct URL to that tab
+CSV_URL_UPDATES = "https://docs.google.com/spreadsheets/d/1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY/gviz/tq?tqx=out:csv&gid=160282702"
+
+@st.cache_data(ttl=300)
+def load_latest_updates():
+    return pd.read_csv(CSV_URL_UPDATES)
+
+try:
+    df_updates = load_latest_updates()
+    st.success("📡 Live updates loaded successfully")
+except Exception as e:
+    st.error(f"❌ Failed to load updates sheet: {e}")
+    df_updates = pd.DataFrame(columns=["Property", "Details", "CREW NAME", "Due date", "Status 1", "Reason"])
+
+# Show updates if data exists
+if not df_updates.empty:
+    # Normalize column names
+    df_updates.columns = [c.strip() for c in df_updates.columns]
+
+    # Sort by due date (if possible)
+    if "Due date" in df_updates.columns:
         try:
-            due_dt = pd.to_datetime(due_series, errors="coerce")
-            order_idx = due_dt.sort_values().index
-            df_status_sorted = df_status.loc[order_idx].reset_index(drop=True)
+            df_updates["Due date"] = pd.to_datetime(df_updates["Due date"], errors="coerce")
+            df_updates = df_updates.sort_values("Due date", ascending=True)
         except Exception:
-            df_status_sorted = df_status.copy()
+            pass
 
- 
-for _, row in df_status_sorted.head(12).iterrows():
-    prop = row.get(status_col_map.get("property", "Property"), row.get("Property", ""))
-    crew = row.get(status_col_map.get("crew name", "CREW NAME"), row.get("CREW NAME", ""))
-    due = row.get(status_col_map.get("due date", "Due date"), row.get("Due date", ""))
-    stat = row.get(status_col_map.get("status 1", "Status 1"), row.get("Status 1", ""))
-    reason = row.get(status_col_map.get("reason", "Reason"), row.get("Reason", ""))
+    # Create a scrollable container
+    with st.container():
+        st.markdown(
+            """
+            <div style="max-height:450px; overflow-y:auto; padding-right:10px;">
+            """,
+            unsafe_allow_html=True
+        )
 
-    # color by status
-    stat_low = str(stat).lower()
-    if "complete" in stat_low:
-        color = "#2ecc71"
-    elif "overdue" in stat_low or "late" in stat_low:
-        color = "#e74c3c"
-    else:
-        color = "#f39c12"
+        # Loop through rows
+        for _, row in df_updates.iterrows():
+            prop = row.get("Property", "")
+            details = row.get("Details", "")
+            crew = row.get("CREW NAME", "")
+            due = row.get("Due date", "")
+            status = row.get("Status 1", "")
+            reason = row.get("Reason", "")
 
-    st.markdown(
-        f"""
-        <div style="background-color:{color}15; border-left:4px solid {color}; padding:8px; border-radius:6px; margin-bottom:8px;">
-            <b>🏠 {prop}</b><br>
-            👷 {crew} &nbsp; • &nbsp; 📅 {due}<br>
-            <b>Status:</b> {stat}<br>
-            <small>💬 {reason}</small>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+            # Color code by status
+            s = str(status).lower()
+            if "complete" in s:
+                color = "#2ecc71"
+            elif "overdue" in s or "late" in s:
+                color = "#e74c3c"
+            elif "pending" in s or "in progress" in s:
+                color = "#f39c12"
+            else:
+                color = "#3498db"
+
+            st.markdown(
+                f"""
+                <div style="background-color:{color}15; border-left:4px solid {color}; padding:10px; border-radius:6px; margin-bottom:8px;">
+                    <b>🏠 Property:</b> {prop}<br>
+                    <b>🧾 Details:</b> {details}<br>
+                    <b>👷 Crew:</b> {crew}<br>
+                    <b>📅 Due:</b> {due}<br>
+                    <b>📊 Status:</b> {status}<br>
+                    <b>💬 Reason:</b> {reason}
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+else:
+    st.info("No recent property updates available.")
 # ---------- RIGHT: Map ----------
 with right_col:
     # create map center
