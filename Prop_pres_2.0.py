@@ -33,27 +33,6 @@ except Exception as e:
     st.error(f"❌ Failed to load Google Sheet: {e}")
     df = pd.DataFrame(columns=["W/O Number","address","latitude","longitude","status","vendor","W/O Type","Due Date","Complete Date", "notes", "Detailed Services", "Attach Photos"])
 
-# --- Sidebar: Admin Controls & Resources ---
-st.sidebar.header("Admin Controls")
-st.sidebar.title("📂 Resources")
-
-sections = ["VRM", "Cyprex", "Pricing", "Other"]
-selected_section = st.sidebar.selectbox("Select Section", sections)
-
-# Admin file upload
-st.sidebar.markdown("### Upload a file")
-uploaded_resource = st.sidebar.file_uploader(
-    f"Upload file to {selected_section}", 
-    type=["pdf", "docx", "xlsx", "csv", "txt"]
-)
-
-if uploaded_resource:
-    os.makedirs("resources", exist_ok=True)
-    save_path = f"resources/{selected_section}_{uploaded_resource.name}"
-    with open(save_path, "wb") as f:
-        f.write(uploaded_resource.getbuffer())
-    st.sidebar.success(f"✅ File uploaded to {selected_section} section!")
-
 # --- Convert to GeoDataFrame ---
 if not df.empty and {"latitude", "longitude"}.issubset(df.columns):
     gdf = gpd.GeoDataFrame(
@@ -64,6 +43,63 @@ if not df.empty and {"latitude", "longitude"}.issubset(df.columns):
 else:
     st.warning("⚠️ No valid geographic data found. Check your Google Sheet columns.")
     gdf = gpd.GeoDataFrame(columns=["geometry"])
+
+# --- LIVE STATUS PANEL FROM GOOGLE SHEETS ---
+st.sidebar.title("📊 Property Preservation Status Board")
+
+SHEET_ID_STATS = "1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY"
+CSV_URL_STATS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_STATS}/gviz/tq?tqx=out:csv"
+
+@st.cache_data(ttl=300)
+def load_status_data():
+    return pd.read_csv(CSV_URL_STATS)
+
+try:
+    df_status = load_status_data()
+    st.sidebar.success("✅ Live status data loaded ")
+except Exception as e:
+    st.sidebar.error(f"❌ Failed to load sheet: {e}")
+    df_status = pd.DataFrame(columns=["Property", "Details", "CREW NAME", "Due date", "Status 1", "Reason"])
+
+# --- SUMMARY CARDS ---
+if not df_status.empty:
+    total_jobs = len(df_status)
+    completed = df_status[df_status["Status 1"].str.contains("Complete", case=False, na=False)]
+    pending = df_status[df_status["Status 1"].str.contains("Pending|In Progress", case=False, na=False)]
+    overdue = df_status[df_status["Status 1"].str.contains("Overdue|Late", case=False, na=False)]
+    crews = df_status["CREW NAME"].nunique()
+
+    c1, c2, c3, c4 = st.sidebar.columns(4)
+    c1.metric("✅ Completed", len(completed))
+    c2.metric("🕓 Pending", len(pending))
+    c3.metric("❌ Overdue", len(overdue))
+    c4.metric("👷 Crews", crews)
+
+    # --- PIE CHART ---
+    st.sidebar.markdown("### 📈 Status Distribution")
+    chart_data = df_status["Status 1"].value_counts().reset_index()
+    chart_data.columns = ["Status", "Count"]
+    st.sidebar.bar_chart(chart_data, x="Status", y="Count", color="#1E90FF")
+
+    # --- LIVE FEED ---
+    st.sidebar.markdown("### 📰 Latest Property Updates")
+    for _, row in df_status.head(10).iterrows():
+        color = "#2ecc71" if "complete" in str(row["Status 1"]).lower() else "#e74c3c" if "overdue" in str(row["Status 1"]).lower() else "#f39c12"
+        st.sidebar.markdown(
+            f"""
+            <div style="background-color:{color}15; border-left:4px solid {color}; padding:8px; border-radius:6px; margin-bottom:5px;">
+            <b>🏠 {row['Property']}</b><br>
+            👷 {row['CREW NAME']}<br>
+            📅 {row['Due date']}<br>
+            📊 <b>{row['Status 1']}</b><br>
+            💬 {row['Reason']}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+else:
+    st.sidebar.warning("No data available from the spreadsheet.")
+
 
 # --- Create Map ---
 if not gdf.empty:
