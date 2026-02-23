@@ -1,16 +1,15 @@
+# app.py - CPP Dashboard (updated left-panel status board + map)
 # -*- coding: utf-8 -*-
-"""app_1 - Property Preservation Dashboard"""
 
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
 import folium
-from folium.plugins import MarkerCluster
+from folium.plugins import MarkerCluster, Search
 from streamlit_folium import st_folium
 from shapely.geometry import Point
 from folium import IFrame
 import os
-from folium.plugins import Search
 
 # --- Streamlit Page Config ---
 st.set_page_config(page_title="Property Preservation Live Report", layout="wide")
@@ -18,310 +17,251 @@ st.set_page_config(page_title="Property Preservation Live Report", layout="wide"
 st.title("🏠 CPP Dashboard")
 st.subheader("🔍 Zoom in/out and click on any property to see its details")
 
-# --- Google Sheets live data source ---
+# --------------------------
+# Helper functions
+# --------------------------
+def normalize_cols(df):
+    """Make a mapping of lower-trimmed column names to original and rename a copy for easy lookups."""
+    df = df.copy()
+    col_map = {c.strip().lower(): c for c in df.columns}
+    df.columns = [c.strip() for c in df.columns]
+    return df, col_map
+
+def safe_get(df, col_map, want_name, default=""):
+    """Return series df[col] if present using a case-insensitive match, else default."""
+    key = want_name.strip().lower()
+    if key in col_map:
+        return df[col_map[key]]
+    # not found, return a series of defaults
+    return pd.Series([default] * len(df), index=df.index)
+
+# --------------------------
+# Load property map data (existing Google Sheet)
+# --------------------------
 SHEET_ID = "1AxNmdkDGxYhi0-3-bZGdng-hT1KzxHqpgn_82eqglYg"
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv"
 
-@st.cache_data(ttl=300)  # cache for 5 minutes
-def load_data():
-    return pd.read_csv(CSV_URL)
+@st.cache_data(ttl=180)
+def load_property_sheet(url):
+    df = pd.read_csv(url)
+    return df
 
 try:
-    df = load_data()
+    df = load_property_sheet(CSV_URL)
     st.success("✅ Live property data loaded from Google Sheets")
 except Exception as e:
-    st.error(f"❌ Failed to load Google Sheet: {e}")
-    df = pd.DataFrame(columns=["W/O Number","address","latitude","longitude","status","vendor","W/O Type","Due Date","Complete Date", "notes", "Detailed Services", "Attach Photos"])
+    st.error(f"❌ Failed to load property sheet: {e}")
+    df = pd.DataFrame(columns=["W/O Number","address","latitude","longitude","status","vendor"])
 
-# --- Convert to GeoDataFrame ---
-if not df.empty and {"latitude", "longitude"}.issubset(df.columns):
-    gdf = gpd.GeoDataFrame(
-        df,
-        geometry=[Point(xy) for xy in zip(df["longitude"], df["latitude"])],
-        crs="EPSG:4326"
-    )
+# Normalize columns for safety
+df, prop_col_map = normalize_cols(df)
+
+# Ensure numeric lat/lon
+if "latitude" in df.columns and "longitude" in df.columns:
+    df["latitude"] = pd.to_numeric(df["latitude"], errors="coerce")
+    df["longitude"] = pd.to_numeric(df["longitude"], errors="coerce")
+    df = df.dropna(subset=["latitude", "longitude"])
 else:
-    st.warning("⚠️ No valid geographic data found. Check your Google Sheet columns.")
-    gdf = gpd.GeoDataFrame(columns=["geometry"])
+    # leave df as-is but will produce empty map
+    pass
 
-# --- LIVE STATUS PANEL FROM GOOGLE SHEETS ---
-st.sidebar.title("📊 Property Preservation Status Board")
-
+# --------------------------
+# Load status sheet (the new left-panel data)
+# --------------------------
 SHEET_ID_STATS = "1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY"
 CSV_URL_STATS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_STATS}/gviz/tq?tqx=out:csv"
 
-@st.cache_data(ttl=300)
-def load_status_data():
-    return pd.read_csv(CSV_URL_STATS)
+@st.cache_data(ttl=180)
+def load_status_sheet(url):
+    df = pd.read_csv(url)
+    return df
 
 try:
-    df_status = load_status_data()
-    st.sidebar.success("✅ Live status data loaded ")
+    df_status = load_status_sheet(CSV_URL_STATS)
+    # normalize
+    df_status, status_col_map = normalize_cols(df_status)
+    st.success("✅ Live status data loaded")
 except Exception as e:
-    st.sidebar.error(f"❌ Failed to load sheet: {e}")
-    df_status = pd.DataFrame(columns=["Property", "Details", "CREW NAME", "Due date", "Status 1", "Reason"])
+    st.error(f"❌ Failed to load status sheet: {e}")
+    df_status = pd.DataFrame(columns=["Property","Details","CREW NAME","Due date","Status 1","Reason"])
+    df_status, status_col_map = normalize_cols(df_status)
 
-# --- SUMMARY CARDS ---
-if not df_status.empty:
-    total_jobs = len(df_status)
-    completed = df_status[df_status["Status 1"].str.contains("Complete", case=False, na=False)]
-    pending = df_status[df_status["Status 1"].str.contains("Pending|In Progress", case=False, na=False)]
-    overdue = df_status[df_status["Status 1"].str.contains("Overdue|Late", case=False, na=False)]
-    crews = df_status["CREW NAME"].nunique()
+# --------------------------
+# Page layout: left status panel + right map
+# --------------------------
+left_col, right_col = st.columns([3, 9])  # adjust widths: left smaller, right larger
 
-    c1, c2, c3, c4 = st.sidebar.columns(4)
-    c1.metric("✅ Completed", len(completed))
-    c2.metric("🕓 Pending", len(pending))
-    c3.metric("❌ Overdue", len(overdue))
-    c4.metric("👷 Crews", crews)
+# ---------- LEFT: Status Board ----------
+with left_col:
+    st.markdown("## 📊 Property Preservation Status Board")
+    st.markdown("Live updates from your status sheet")
 
-    # --- PIE CHART ---
-    st.sidebar.markdown("### 📈 Status Distribution")
-    chart_data = df_status["Status 1"].value_counts().reset_index()
-    chart_data.columns = ["Status", "Count"]
-    st.sidebar.bar_chart(chart_data, x="Status", y="Count", color="#1E90FF")
-
-    # --- LIVE FEED ---
-    st.sidebar.markdown("### 📰 Latest Property Updates")
-    for _, row in df_status.head(10).iterrows():
-        color = "#2ecc71" if "complete" in str(row["Status 1"]).lower() else "#e74c3c" if "overdue" in str(row["Status 1"]).lower() else "#f39c12"
-        st.sidebar.markdown(
-            f"""
-            <div style="background-color:{color}15; border-left:4px solid {color}; padding:8px; border-radius:6px; margin-bottom:5px;">
-            <b>🏠 {row['Property']}</b><br>
-            👷 {row['CREW NAME']}<br>
-            📅 {row['Due date']}<br>
-            📊 <b>{row['Status 1']}</b><br>
-            💬 {row['Reason']}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-else:
-    st.sidebar.warning("No data available from the spreadsheet.")
-
-
-# --- Create Map ---
-if not gdf.empty:
-    map_center = [gdf.geometry.y.mean(), gdf.geometry.x.mean()]
-else:
-    map_center = [24.0, 90.0]  # Fallback: Bangladesh center
-
-#  OpenWeatherMap API key (sign up at openweathermap.org for free)
-OWM_API_KEY = "9ab014df3ac7ed08dc86c07d88a7941b"  
-
-#  TomTom API key (optional, for traffic; sign up at developer.tomtom.com)
-TOMTOM_API_KEY = "kx2GxCYzq5RP8TEsePw7OXVpwF5VYv2f" 
-
-m = folium.Map(location=map_center, zoom_start=13, tiles=None)  # Start with no base tiles 
-
-# --- Add Basemaps (mutually exclusive; radio buttons in control) ---
-# Current default: CartoDB Positron (clean, light)
-folium.TileLayer(
-    tiles="CartoDB positron",
-    name="Light Map (Default)",
-    attr="CartoDB"
-).add_to(m)
-
-# Route/Navigation: OpenStreetMap (emphasizes roads, good for routing)
-folium.TileLayer(
-    tiles="OpenStreetMap",
-    name="Routes & Navigation (OSM)",
-    attr="OpenStreetMap contributors"
-).add_to(m)
-
-# Alternative terrain basemap (for visual variety, e.g., hilly routes)
-#folium.TileLayer(
-#    tiles="Stamen Terrain",
-#    name="Terrain Map",
-#    attr="Stamen Design"
-#).add_to(m)
-
-# --- Add Overlays (toggle on/off; checkboxes in control) ---
-# Weather: Clouds (from OpenWeatherMap)
-folium.TileLayer(
-    tiles=f"http://tile.openweathermap.org/map/clouds_new/{{z}}/{{x}}/{{y}}.png?appid={OWM_API_KEY}",
-    attr="OpenWeatherMap",
-    name="Weather: Clouds",
-    overlay=True,
-    control=True,
-    opacity=0.6  # Semi-transparent so markers show through
-).add_to(m)
-
-# Weather: Precipitation (from OpenWeatherMap)
-folium.TileLayer(
-    tiles=f"http://tile.openweathermap.org/map/precipitation_new/{{z}}/{{x}}/{{y}}.png?appid={OWM_API_KEY}",
-    attr="OpenWeatherMap",
-    name="Weather: Precipitation",
-    overlay=True,
-    control=True,
-    opacity=0.6
-).add_to(m)
-
-# Traffic: Real-time flow (from TomTom; optional)
-if TOMTOM_API_KEY:  # Only add if you have a key
-    folium.TileLayer(
-        tiles=f"https://api.tomtom.com/traffic/map/4/tile/flow/relative/{{z}}/{{x}}/{{y}}.png?key={TOMTOM_API_KEY}",
-        attr="TomTom",
-        name="Traffic Flow",
-        overlay=True,
-        control=True,
-        opacity=0.7
-    ).add_to(m)
-
-# Cyclones: Add as GeoJSON overlay (example historical tracks; fetch real-time if needed)
-# Sample public GeoJSON URL (NOAA Atlantic hurricanes; replace with Bangladesh/Indian Ocean data, e.g., from IMD or GDACS)
-cyclone_geojson_url = "https://www.nhc.noaa.gov/gis/best_track/al2023_best_track.zip"  # This is a ZIP—use a direct GeoJSON if possible
-# For simplicity, assume you have a GeoJSON file or URL; here's how to add it
-# --- Cyclones layer temporarily disabled (URL points to ZIP, not GeoJSON) ---
-# cyclone_geojson_url = "https://www.nhc.noaa.gov/gis/best_track/al2023_best_track.zip"
-# folium.GeoJson(
-#     cyclone_geojson_url,
-#     name="Cyclones/Hurricanes",
-#     style_function=lambda feature: {
-#         'color': 'red',
-#         'weight': 2,
-#         'dashArray': '5, 5'
-#     },
-#     overlay=True,
-#     control=True
-# ).add_to(m)
-
-
-#status colors
-
-status_colors = {
-    "Overdue": "red",
-    "Bid request": "orange",
-    "Biweekly": "green"
-}
-#marker cluster
-marker_cluster = MarkerCluster().add_to(m)
-
-# Clean and validate numeric coordinates
-df["latitude"] = pd.to_numeric(df["latitude"], errors="coerce")
-df["longitude"] = pd.to_numeric(df["longitude"], errors="coerce")
-df = df.dropna(subset=["latitude", "longitude"])
-
-# Convert to GeoDataFrame
-gdf = gpd.GeoDataFrame(
-    df,
-    geometry=[Point(xy) for xy in zip(df["longitude"], df["latitude"])],
-    crs="EPSG:4326"
-)
-
-# --- Draw map markers ---
-for _, row in gdf.iterrows():
-    
-# ── New version ──
-    detailed_url = row.get("Detailed Services URL", row.get("Detailed Services", ""))  # fallback to old column if needed
-
-    if pd.notna(detailed_url) and str(detailed_url).strip().startswith(("http://", "https://")):
-        detailed_services_html = (
-            '<a href="{url}" target="_blank" style="color:#1E90FF; text-decoration:underline; font-weight:bold;">'
-            'Click here'
-            '</a>'
-        ).format(url=detailed_url.strip())
+    if df_status.empty:
+        st.info("No status data available.")
     else:
-        detailed_services_html = "No link available"
+        # Use safe_get to find required columns even if names vary
+        prop_series = safe_get(df_status, status_col_map, "Property", "")
+        crew_series = safe_get(df_status, status_col_map, "CREW NAME", "")
+        due_series = safe_get(df_status, status_col_map, "Due date", "")
+        status_series = safe_get(df_status, status_col_map, "Status 1", "")
+        reason_series = safe_get(df_status, status_col_map, "Reason", "")
 
-# --- Draw map markers ---
-for _, row in gdf.iterrows():
-    detailed_services_link = row.get("Detailed Services", "")
-    if pd.notna(detailed_services_link) and str(detailed_services_link).startswith("http"):
-        detailed_services_html = f'<a href="{detailed_services_link}" target="_blank" style="color:#1E90FF;">Open Details</a>'
+        # Simple classification counts (case-insensitive)
+        completed_mask = status_series.str.contains("complete|submitted|finished", case=False, na=False)
+        pending_mask = status_series.str.contains("pending|in progress|assigned|no crew", case=False, na=False)
+        overdue_mask = status_series.str.contains("overdue|late", case=False, na=False)
+
+        completed_count = int(completed_mask.sum())
+        pending_count = int(pending_mask.sum())
+        overdue_count = int(overdue_mask.sum())
+        crews_count = int(crew_series.dropna().nunique())
+
+        # KPI cards
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("✅ Completed", completed_count)
+        k2.metric("🕓 Pending", pending_count)
+        k3.metric("❌ Overdue", overdue_count)
+        k4.metric("👷 Crews", crews_count)
+
+        st.markdown("---")
+
+        # Status distribution bar chart (counts)
+        st.markdown("### 📈 Status Distribution")
+        chart_counts = status_series.fillna("unknown").value_counts()
+        # st.bar_chart accepts a series or dataframe with numeric values
+        st.bar_chart(chart_counts)
+
+        st.markdown("---")
+
+        # Latest updates (scrollable area)
+        st.markdown("### 📰 Latest Property Updates")
+        # show top 10 most recent rows — if there is a date column we could sort by it; otherwise show tail
+        # We will try to parse Due date to datetime to sort by it (most urgent first)
+        try:
+            due_dt = pd.to_datetime(due_series, errors="coerce")
+            order_idx = due_dt.sort_values().index
+            df_status_sorted = df_status.loc[order_idx].reset_index(drop=True)
+        except Exception:
+            df_status_sorted = df_status.copy()
+
+        # Show up to 12 items
+        for _, row in df_status_sorted.head(12).iterrows():
+            p = safe_get(df_status_sorted.loc[[_] if False else df_status_sorted.index, status_col_map], status_col_map, "Property", "")
+            # build fields robustly using safe_get from the row
+            prop = row.get(status_col_map.get("property", "Property"), row.get("Property", ""))
+            crew = row.get(status_col_map.get("crew name", "CREW NAME"), row.get("CREW NAME", ""))
+            due = row.get(status_col_map.get("due date", "Due date"), row.get("Due date", ""))
+            stat = row.get(status_col_map.get("status 1", "Status 1"), row.get("Status 1", ""))
+            reason = row.get(status_col_map.get("reason", "Reason"), row.get("Reason", ""))
+
+            # color by status
+            stat_low = str(stat).lower()
+            if "complete" in stat_low:
+                color = "#2ecc71"
+            elif "overdue" in stat_low or "late" in stat_low:
+                color = "#e74c3c"
+            else:
+                color = "#f39c12"
+
+            st.markdown(
+                f"""
+                <div style="background-color:{color}15; border-left:4px solid {color}; padding:8px; border-radius:6px; margin-bottom:8px;">
+                    <b>🏠 {prop}</b><br>
+                    👷 {crew} &nbsp; • &nbsp; 📅 {due}<br>
+                    <b>Status:</b> {stat}<br>
+                    <small>💬 {reason}</small>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+# ---------- RIGHT: Map ----------
+with right_col:
+    # create map center
+    if not df.empty and "latitude" in df.columns and "longitude" in df.columns:
+        map_center = [df["latitude"].mean(), df["longitude"].mean()]
+        m = folium.Map(location=map_center, zoom_start=12, tiles=None)
     else:
-        detailed_services_html = str(detailed_services_link)
-    attach_photos_link = row.get("Attach Photos", "")
+        # fallback
+        map_center = [24.0, 90.0]
+        m = folium.Map(location=map_center, zoom_start=5, tiles=None)
 
-    if pd.notna(attach_photos_link) and "drive.google.com/drive/folders/" in str(attach_photos_link):
-        photos_html = (
-            '<b>Attach Photos:</b> '
-            '<a href="{url}" target="_blank" '
-            'style="color:#1E90FF; text-decoration:underline; font-weight:bold;">'
-            'Upload photos here →'
-            '</a>'
-        ).format(url=attach_photos_link.strip())
-    else:
-        photos_html = '<br><b>Attach Photos:</b> No upload link available'
-    
+    # Basemaps
+    folium.TileLayer("CartoDB positron", name="Light Map").add_to(m)
+    folium.TileLayer("OpenStreetMap", name="OSM").add_to(m)
 
-    html = f"""
-    <div style='font-size:14px;'>
-        <b>W/O Number:</b> {row.get('W/O Number', '')}<br>
-        <b>Address:</b> {row.get('address', '')}<br>
-        <b>Latitude:</b> {row.get('latitude', '')}<br>
-        <b>Longitude:</b> {row.get('longitude', '')}<br>
-        <b>Status:</b> {row.get('status', '')}<br>
-        <b>Vendor:</b> {row.get('vendor', '')}<br>
-        <b>W/O Type:</b> {row.get('W/O Type', '')}<br>
-        <b>Due Date:</b> {row.get('Due Date', '')}<br>
-        <b>Complete Date:</b> {row.get('Complete Date', '')}<br>
-        <b>Notes:</b> {row.get('notes', '')}<br>
-        <b>Detailed Services:</b> {detailed_services_html}<br>
-        {photos_html}
+    # optional overlays (keep, but note: some tile URLs require https and API keys in secrets)
+    # Marker cluster
+    marker_cluster = MarkerCluster().add_to(m)
+
+    # If df has lat/lon, add markers
+    if not df.empty and "latitude" in df.columns and "longitude" in df.columns:
+        # create GeoDataFrame for searching layer as well
+        try:
+            gdf = gpd.GeoDataFrame(df, geometry=[Point(xy) for xy in zip(df["longitude"], df["latitude"])], crs="EPSG:4326")
+        except Exception:
+            gdf = None
+
+        # Add markers with popup
+        if gdf is not None:
+            for _, row in gdf.iterrows():
+                # build popup using safe access to columns that may exist
+                wo = row.get(prop_col_map.get("w/o number", "W/O Number"), row.get("W/O Number", ""))
+                address = row.get(prop_col_map.get("address", "address"), row.get("address", ""))
+                status = row.get(prop_col_map.get("status", "status"), row.get("status", ""))
+                vendor = row.get(prop_col_map.get("vendor", "vendor"), row.get("vendor", ""))
+
+                # simple popup HTML
+                popup_html = f"""
+                    <div style='font-size:13px;'>
+                        <b>W/O:</b> {wo}<br>
+                        <b>Address:</b> {address}<br>
+                        <b>Status:</b> {status}<br>
+                        <b>Vendor:</b> {vendor}
+                    </div>
+                """
+                iframe = IFrame(popup_html, width=280, height=140)
+                folium.CircleMarker(
+                    location=[row.geometry.y, row.geometry.x],
+                    radius=6,
+                    color="blue",
+                    fill=True,
+                    fill_color="blue",
+                    fill_opacity=0.9,
+                    popup=folium.Popup(iframe, max_width=300),
+                ).add_to(marker_cluster)
+
+            # Add searchable GeoJson layer for Search plugin
+            geojson_layer = folium.GeoJson(
+                gdf,
+                name="Searchable Properties",
+                tooltip=folium.features.GeoJsonTooltip(fields=["address"], aliases=["Address:"])
+            ).add_to(m)
+
+            Search(layer=geojson_layer, search_label="address", placeholder="🔍 Search address or W/O", collapsed=False, search_zoom=16).add_to(m)
+
+    # Legend (kept simple)
+    legend_html = """
+    <div style="
+        position: fixed; 
+        bottom: 40px; left: 40px; width: 180px; height: 100px; 
+        background-color: white; 
+        border:2px solid grey; 
+        z-index:9999; 
+        font-size:14px; 
+        border-radius:8px;
+        padding:10px;
+        box-shadow:2px 2px 5px rgba(0,0,0,0.3);
+    ">
+        <b>Status Legend</b><br>
+        <span style="color:#e74c3c;">&#9679;</span> Overdue<br>
+        <span style="color:#f39c12;">&#9679;</span> Pending<br>
+        <span style="color:#2ecc71;">&#9679;</span> Complete
     </div>
     """
+    m.get_root().html.add_child(folium.Element(legend_html))
 
-    iframe = IFrame(html=html, width=300, height=200)
-    popup = folium.Popup(iframe, max_width=300)
+    folium.LayerControl(collapsed=True).add_to(m)
 
-    folium.CircleMarker(
-        location=[row.geometry.y, row.geometry.x],
-        radius=6,
-        color=status_colors.get(row.get("status", ""), "gray"),
-        fill=True,
-        fill_color=status_colors.get(row.get("status", ""), "gray"),
-        fill_opacity=0.9,
-        popup=popup,
-    ).add_to(marker_cluster)
-
-# Create a searchable button FeatureGroup from GeoDataFrame
-
-searchable = gdf.copy()
-searchable = searchable.dropna(subset=["latitude", "longitude"])
-
-# Prepare GeoJSON-like data for the Search plugin
-geojson_layer = folium.GeoJson(
-    searchable,
-    name="Searchable Properties",
-    tooltip=folium.features.GeoJsonTooltip(fields=["address", "W/O Number"], aliases=["Address:", "W/O Number:"])
-).add_to(m)
-
-# Add the Search control
-Search(
-    layer=geojson_layer,
-    geom_type='Point',
-    search_label='address',          # column name in your DataFrame
-    placeholder='🔍 Search by address or W/O number...',
-    collapsed=False,
-    search_zoom=16,                  # zoom to 16 when found
-    position='topleft',
-).add_to(m)
-
-# --- Add Legend ---
-legend_html = """
-<div style="
-    position: fixed; 
-    bottom: 40px; left: 40px; width: 180px; height: 130px; 
-    background-color: white; 
-    border:2px solid grey; 
-    z-index:9999; 
-    font-size:14px; 
-    border-radius:8px;
-    padding:10px;
-    box-shadow:2px 2px 5px rgba(0,0,0,0.3);
-">
-<b>Status Legend</b><br>
-<span style="color:red;">&#9679;</span> Overdue<br>
-<span style="color:orange;">&#9679;</span> Bid request<br>
-<span style="color:green;">&#9679;</span> Biweekly
-</div>
-"""
-m.get_root().html.add_child(folium.Element(legend_html))
-
-# --- Add Layer Control (clickable options in top-right corner) ---
-folium.LayerControl(collapsed=False).add_to(m)  # collapsed=False keeps it open by default
-
-# --- Render Map ---
-st_folium(m, width=1300, height=650)
+    # Render map
+    st_folium(m, width=1100, height=700)
