@@ -29,6 +29,7 @@ def normalize_cols(df):
     df.columns = [c.strip() for c in df.columns]
     return df, col_map
 
+
 def safe_get(df, col_map, want_name, default=""):
     """Return series df[col] if present using a case-insensitive match, else default."""
     key = want_name.strip().lower()
@@ -37,23 +38,26 @@ def safe_get(df, col_map, want_name, default=""):
     # not found, return a series of defaults
     return pd.Series([default] * len(df), index=df.index)
 
+
 # --------------------------
 # Load property map data (existing Google Sheet)
 # --------------------------
 SHEET_ID = "1AxNmdkDGxYhi0-3-bZGdng-hT1KzxHqpgn_82eqglYg"
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv"
 
+
 @st.cache_data(ttl=180)
 def load_property_sheet(url):
     df = pd.read_csv(url)
     return df
+
 
 try:
     df = load_property_sheet(CSV_URL)
     st.success("✅ Live property data loaded from Google Sheets")
 except Exception as e:
     st.error(f"❌ Failed to load property sheet: {e}")
-    df = pd.DataFrame(columns=["W/O Number","address","latitude","longitude","status","vendor"])
+    df = pd.DataFrame(columns=["W/O Number", "address", "latitude", "longitude", "status", "vendor"])
 
 # Normalize columns for safety
 df, prop_col_map = normalize_cols(df)
@@ -64,40 +68,37 @@ if "latitude" in df.columns and "longitude" in df.columns:
     df["longitude"] = pd.to_numeric(df["longitude"], errors="coerce")
     df = df.dropna(subset=["latitude", "longitude"])
 else:
-    # leave df as-is but will produce empty map
     pass
 
 # --------------------------
-# Load status sheet (the new left-panel data)
-# ── IMPORTANT: Load the CLEAN STATUS TAB here (this defines df_updates) ──
-# Load status sheet (the new left-panel data)
+# Load status sheet (left-panel data)
 # --------------------------
 CSV_URL_UPDATES = "https://docs.google.com/spreadsheets/d/1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY/gviz/tq?tqx=out:csv&gid=160282702"
 
-@st.cache_data(ttl=180)  # shorter TTL for fresher data
+
+@st.cache_data(ttl=180)
 def load_updates():
     return pd.read_csv(CSV_URL_UPDATES)
+
 
 df_updates = None
 try:
     df_updates = load_updates()
-    # Optional: quick debug in app (remove later if not needed)
     st.caption(f"✅ Loaded {len(df_updates)} rows from updates tab")
 except Exception as e:
     st.error(f"❌ Failed to load updates tab: {e}")
     df_updates = pd.DataFrame(columns=["Property", "Details", "CREW NAME", "Due date", "Status 1", "Reason"])
 
-# Normalize once here (safe for the whole app)
+# Normalize once here
 if df_updates is not None and not df_updates.empty:
     df_updates.columns = [c.strip() for c in df_updates.columns]
 
 # --------------------------
 # Page layout: left status panel + right map
 # --------------------------
-left_col, right_col = st.columns([3, 9])  # adjust widths: left smaller, right larger
+left_col, right_col = st.columns([3, 9])
 
 # ---------- LEFT: Status Board ----------
-# ---------- LEFT: Premium Status Board ----------
 with left_col:
     st.markdown(
         "<h2 style='margin:0 0 8px 0;'>🏠 Property Preservation Status Board</h2>",
@@ -110,8 +111,9 @@ with left_col:
     else:
         df_left = df_updates.copy()
 
-        # Date parsing - your sheet uses DD/MM/YY or mixed → coerce + infer
+        # Date parsing
         if "Due date" in df_left.columns:
+
             def parse_date(x):
                 if pd.isna(x) or str(x).strip() == "":
                     return pd.NaT
@@ -121,60 +123,51 @@ with left_col:
                         return pd.to_datetime(x_str, format=fmt, errors="raise")
                     except:
                         pass
-                # Final fallback
                 return pd.to_datetime(x_str, errors="coerce", dayfirst=True)
+
             df_left["Due date"] = df_left["Due date"].apply(parse_date)
 
-        # Categorize function (updated slightly for robustness)
-def categorize(row):
-    s = str(row.get("Status 1", "")).lower().strip()
-    due = row.get("Due date")  # this should now be datetime or NaT
+        # Categorize function
+        def categorize(row):
+            s = str(row.get("Status 1", "")).lower().strip()
+            due = row.get("Due date")
 
-    # Completed keywords take priority (even if overdue)
-    if any(word in s for word in ["complete", "submitted", "payment", "finished", "done", "received"]):
-        return "✅ Completed"
+            if any(word in s for word in ["complete", "submitted", "payment", "finished", "done", "received"]):
+                return "✅ Completed"
 
-    # Overdue: only if due is a valid datetime, is in the past, and not already marked complete
-    if pd.notna(due) and isinstance(due, (pd.Timestamp, datetime.date, datetime.datetime)):
-        # Convert today to the same type for fair comparison
-        today_dt = pd.Timestamp(today).normalize() if isinstance(due, pd.Timestamp) else today
-        if due < today_dt:
-            return "❌ Overdue"
+            if pd.notna(due) and isinstance(due, (pd.Timestamp, datetime.date, datetime.datetime)):
+                today_dt = pd.Timestamp.today().normalize()
+                if due < today_dt:
+                    return "❌ Overdue"
 
-    # In Progress keywords
-    if any(word in s for word in ["ongoing", "progress", "will be", "try to", "today", "tomorrow", "friday", "monday"]):
-        return "🔄 In Progress"
+            if any(word in s for word in ["ongoing", "progress", "will be", "try to", "today", "tomorrow", "friday", "monday"]):
+                return "🔄 In Progress"
 
-    # Pending/Bid keywords
-    if any(word in s for word in ["waiting", "pending", "bid", "pricing", "activation"]):
-        return "⏳ Pending / Bid"
+            if any(word in s for word in ["waiting", "pending", "bid", "pricing", "activation"]):
+                return "⏳ Pending / Bid"
 
-    return "📌 Other"
+            return "📌 Other"
 
         df_left["Category"] = df_left.apply(categorize, axis=1)
 
-        # ====================== CALCULATIONS ======================
+        # Metrics
         total = len(df_left)
         completed = (df_left["Category"] == "✅ Completed").sum()
         overdue = (df_left["Category"] == "❌ Overdue").sum()
         in_progress = (df_left["Category"] == "🔄 In Progress").sum()
         pending = (df_left["Category"] == "⏳ Pending / Bid").sum()
-        
         completion_rate = round((completed / total * 100), 1) if total > 0 else 0
         active_crews = df_left["CREW NAME"].dropna().nunique()
 
-        # ====================== PREMIUM KPI CARDS ======================
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("📋 Total Properties", total)
-        c2.metric("✅ Completion Rate", f"{completion_rate}%", 
-                  delta=f"{completed} completed")
-        c3.metric("❌ Overdue", overdue, 
-                  help="Past due date & not marked complete")
+        c2.metric("✅ Completion Rate", f"{completion_rate}%", delta=f"{completed} completed")
+        c3.metric("❌ Overdue", overdue, help="Past due date & not marked complete")
         c4.metric("👷 Active Crews", active_crews)
 
         st.markdown("---")
 
-        # ====================== INTERACTIVE PIE CHART ======================
+        # Pie Chart
         st.markdown("### 📊 Status Breakdown")
         fig = px.pie(
             df_left["Category"].value_counts().reset_index(),
@@ -195,21 +188,22 @@ def categorize(row):
 
         st.markdown("---")
 
-        # ====================== SMART INSIGHTS ======================
+        # Executive Insights
         st.markdown("### 💡 Executive Insights")
-        
+
         insight_list = []
         if overdue > 0:
             insight_list.append(f"🚨 **{overdue} properties are overdue** — immediate action needed.")
         if pending >= 2:
             insight_list.append(f"⏳ **{pending} bids/activations pending** — follow up today.")
-        
+
         top_crew = df_left["CREW NAME"].value_counts().idxmax() if not df_left["CREW NAME"].dropna().empty else "N/A"
         top_count = df_left["CREW NAME"].value_counts().max()
         insight_list.append(f"🏆 **{top_crew}** is leading with **{top_count}** assignments.")
 
+        today = pd.Timestamp.today()
         due_soon = df_left[
-            (pd.notna(df_left["Due date"])) & 
+            (pd.notna(df_left["Due date"])) &
             (df_left["Due date"] <= today + pd.Timedelta(days=7)) &
             (df_left["Category"] != "✅ Completed")
         ]
@@ -221,12 +215,12 @@ def categorize(row):
 
         st.markdown("---")
 
-        # ====================== URGENT TABLE ======================
+        # Urgent Items
         st.markdown("### ⚠️ Urgent Items (Overdue or Due Soon)")
         urgent = df_left[
             (df_left["Category"] == "❌ Overdue") |
-            ((pd.notna(df_left["Due date"])) & 
-             (df_left["Due date"] <= today + pd.Timedelta(days=7)) & 
+            ((pd.notna(df_left["Due date"])) &
+             (df_left["Due date"] <= today + pd.Timedelta(days=7)) &
              (df_left["Category"] != "✅ Completed"))
         ].copy()
 
@@ -248,116 +242,34 @@ def categorize(row):
             st.success("🎉 All properties are on track!")
 
         st.markdown("---")
-# Define the direct URL to that tab
-CSV_URL_UPDATES = "https://docs.google.com/spreadsheets/d/1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY/gviz/tq?tqx=out:csv&gid=160282702"
 
-@st.cache_data(ttl=300)
-def load_latest_updates():
-    return pd.read_csv(CSV_URL_UPDATES)
-
-try:
-    df_updates = load_latest_updates()
-    st.success("📡 Live updates loaded successfully")
-except Exception as e:
-    st.error(f"❌ Failed to load updates sheet: {e}")
-    df_updates = pd.DataFrame(columns=["Property", "Details", "CREW NAME", "Due date", "Status 1", "Reason"])
-
-# Show updates if data exists
-if not df_updates.empty:
-    # Normalize column names
-    df_updates.columns = [c.strip() for c in df_updates.columns]
-
-    # Sort by due date (if possible)
-    if "Due date" in df_updates.columns:
-        try:
-            df_updates["Due date"] = pd.to_datetime(df_updates["Due date"], errors="coerce")
-            df_updates = df_updates.sort_values("Due date", ascending=True)
-        except Exception:
-            pass
-
-    # Create a scrollable container
-    with st.container():
-        st.markdown(
-            """
-            <div style="max-height:450px; overflow-y:auto; padding-right:10px;">
-            """,
-            unsafe_allow_html=True
-        )
-
-        # Loop through rows
-        for _, row in df_updates.iterrows():
-            prop = row.get("Property", "")
-            details = row.get("Details", "")
-            crew = row.get("CREW NAME", "")
-            due = row.get("Due date", "")
-            status = row.get("Status 1", "")
-            reason = row.get("Reason", "")
-
-            # Color code by status
-            s = str(status).lower()
-            if "complete" in s:
-                color = "#2ecc71"
-            elif "overdue" in s or "late" in s:
-                color = "#e74c3c"
-            elif "pending" in s or "in progress" in s:
-                color = "#f39c12"
-            else:
-                color = "#3498db"
-
-            st.markdown(
-                f"""
-                <div style="background-color:{color}15; border-left:4px solid {color}; padding:10px; border-radius:6px; margin-bottom:8px;">
-                    <b>🏠 Property:</b> {prop}<br>
-                    <b>🧾 Details:</b> {details}<br>
-                    <b>👷 Crew:</b> {crew}<br>
-                    <b>📅 Due:</b> {due}<br>
-                    <b>📊 Status:</b> {status}<br>
-                    <b>💬 Reason:</b> {reason}
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-        st.markdown("</div>", unsafe_allow_html=True)
-else:
-    st.info("No recent property updates available.")
 # ---------- RIGHT: Map ----------
 with right_col:
-    # create map center
     if not df.empty and "latitude" in df.columns and "longitude" in df.columns:
         map_center = [df["latitude"].mean(), df["longitude"].mean()]
         m = folium.Map(location=map_center, zoom_start=12, tiles=None)
     else:
-        # fallback
         map_center = [24.0, 90.0]
         m = folium.Map(location=map_center, zoom_start=5, tiles=None)
 
-    # Basemaps
     folium.TileLayer("CartoDB positron", name="Light Map").add_to(m)
     folium.TileLayer("OpenStreetMap", name="OSM").add_to(m)
 
-    # optional overlays (keep, but note: some tile URLs require https and API keys in secrets)
-    # Marker cluster
     marker_cluster = MarkerCluster().add_to(m)
 
-    # If df has lat/lon, add markers
     if not df.empty and "latitude" in df.columns and "longitude" in df.columns:
-        # create GeoDataFrame for searching layer as well
         try:
             gdf = gpd.GeoDataFrame(df, geometry=[Point(xy) for xy in zip(df["longitude"], df["latitude"])], crs="EPSG:4326")
         except Exception:
             gdf = None
 
-        # Add markers with popup
         if gdf is not None:
             for _, row in gdf.iterrows():
-                # build popup using safe access to columns that may exist
                 wo = row.get(prop_col_map.get("w/o number", "W/O Number"), row.get("W/O Number", ""))
                 address = row.get(prop_col_map.get("address", "address"), row.get("address", ""))
                 status = row.get(prop_col_map.get("status", "status"), row.get("status", ""))
                 vendor = row.get(prop_col_map.get("vendor", "vendor"), row.get("vendor", ""))
 
-                # simple popup HTML
                 popup_html = f"""
                     <div style='font-size:13px;'>
                         <b>W/O:</b> {wo}<br>
@@ -377,7 +289,6 @@ with right_col:
                     popup=folium.Popup(iframe, max_width=300),
                 ).add_to(marker_cluster)
 
-            # Add searchable GeoJson layer for Search plugin
             geojson_layer = folium.GeoJson(
                 gdf,
                 name="Searchable Properties",
@@ -386,7 +297,6 @@ with right_col:
 
             Search(layer=geojson_layer, search_label="address", placeholder="🔍 Search address or W/O", collapsed=False, search_zoom=16).add_to(m)
 
-    # Legend (kept simple)
     legend_html = """
     <div style="
         position: fixed; 
@@ -406,8 +316,5 @@ with right_col:
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))
-
     folium.LayerControl(collapsed=True).add_to(m)
-
-    # Render map
     st_folium(m, width=1100, height=700)
