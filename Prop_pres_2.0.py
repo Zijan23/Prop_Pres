@@ -72,20 +72,24 @@ else:
 # ── IMPORTANT: Load the CLEAN STATUS TAB here (this defines df_updates) ──
 # Load status sheet (the new left-panel data)
 # --------------------------
-SHEET_ID_STATS = "1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY"
-CSV_URL_STATS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_STATS}/gviz/tq?tqx=out:csv"
+CSV_URL_UPDATES = "https://docs.google.com/spreadsheets/d/1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY/gviz/tq?tqx=out:csv&gid=160282702"
 
-@st.cache_data(ttl=180)
-def load_latest_updates():
+@st.cache_data(ttl=180)  # shorter TTL for fresher data
+def load_updates():
     return pd.read_csv(CSV_URL_UPDATES)
 
 df_updates = None
 try:
-    df_updates = load_latest_updates()
-    st.success("Status & updates loaded from clean tab", icon="✅")   # optional feedback
+    df_updates = load_updates()
+    # Optional: quick debug in app (remove later if not needed)
+    st.caption(f"✅ Loaded {len(df_updates)} rows from updates tab")
 except Exception as e:
-    st.error(f"Could not load status tab: {e}")
+    st.error(f"❌ Failed to load updates tab: {e}")
     df_updates = pd.DataFrame(columns=["Property", "Details", "CREW NAME", "Due date", "Status 1", "Reason"])
+
+# Normalize once here (safe for the whole app)
+if df_updates is not None and not df_updates.empty:
+    df_updates.columns = [c.strip() for c in df_updates.columns]
 
 # --------------------------
 # Page layout: left status panel + right map
@@ -93,27 +97,40 @@ except Exception as e:
 left_col, right_col = st.columns([3, 9])  # adjust widths: left smaller, right larger
 
 # ---------- LEFT: Status Board ----------
-# ── LEFT: Premium Status Board ──
+# ---------- LEFT: Premium Status Board ----------
 with left_col:
-    st.markdown("<h2 ...", unsafe_allow_html=True)
-    st.caption("...")
+    st.markdown(
+        "<h2 style='margin:0 0 8px 0;'>🏠 Property Preservation Status Board</h2>",
+        unsafe_allow_html=True
+    )
+    st.caption("🔴 Live from updates tab (gid=160282702) • Refreshes ~every 3 min")
 
     if df_updates is None or df_updates.empty:
-        st.warning("No status data loaded yet.")
+        st.warning("No status data loaded yet. Check sheet permissions/export link.")
     else:
         df_left = df_updates.copy()
-        # Smart status categorization (handles real free-text entries)
+
+        # Date parsing - your sheet uses DD/MM/YY or mixed → coerce + infer
+        if "Due date" in df_left.columns:
+            df_left["Due date"] = pd.to_datetime(df_left["Due date"], errors="coerce", dayfirst=True)
+
+        today = datetime.now().date()   # use datetime.date for comparison
+
+        # Categorize function (updated slightly for robustness)
         def categorize(row):
-            s = str(row.get("Status 1", "")).lower()
+            s = str(row.get("Status 1", "")).lower().strip()
             due = row.get("Due date")
-            
-            if any(x in s for x in ["complete", "submitted", "payment", "finished", "done", "received"]):
+
+            if pd.isna(due):
+                due = None
+
+            if any(word in s for word in ["complete", "submitted", "payment", "finished", "done", "received"]):
                 return "✅ Completed"
             elif due and due < today and "complete" not in s:
                 return "❌ Overdue"
-            elif any(x in s for x in ["ongoing", "progress", "will be", "try to", "today", "tomorrow", "friday", "monday"]):
+            elif any(word in s for word in ["ongoing", "progress", "will be", "try to", "today", "tomorrow", "friday", "monday"]):
                 return "🔄 In Progress"
-            elif any(x in s for x in ["waiting", "pending", "bid", "pricing", "activation"]):
+            elif any(word in s for word in ["waiting", "pending", "bid", "pricing", "activation"]):
                 return "⏳ Pending / Bid"
             else:
                 return "📌 Other"
