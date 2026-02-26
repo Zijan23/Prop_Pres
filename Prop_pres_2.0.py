@@ -10,6 +10,8 @@ from streamlit_folium import st_folium
 from shapely.geometry import Point
 from folium import IFrame
 import os
+import plotly.express as px
+from datetime import datetime
 
 # --- Streamlit Page Config ---
 st.set_page_config(page_title="Property Preservation Live Report", layout="wide")
@@ -92,51 +94,142 @@ except Exception as e:
 left_col, right_col = st.columns([3, 9])  # adjust widths: left smaller, right larger
 
 # ---------- LEFT: Status Board ----------
+# ---------- LEFT: Premium Status Board ----------
 with left_col:
-    st.markdown("## 📊 Property Preservation Status Board")
-    st.markdown("Live updates from your status sheet")
+    st.markdown(
+        "<h2 style='margin:0 0 8px 0;'>🏠 Property Preservation Status Board</h2>",
+        unsafe_allow_html=True
+    )
+    st.caption("🔴 Live from Google Sheet • Auto-refreshes every 3 minutes")
 
-    if df_status.empty:
-        st.info("No status data available.")
+    # Use the CLEAN tab (this fixes the "not updating" issue)
+    df_left = df_updates.copy()
+
+    if df_left.empty:
+        st.warning("No status data available yet.")
     else:
-        # Use safe_get to find required columns even if names vary
-        prop_series = safe_get(df_status, status_col_map, "Property", "")
-        crew_series = safe_get(df_status, status_col_map, "CREW NAME", "")
-        due_series = safe_get(df_status, status_col_map, "Due date", "")
-        status_series = safe_get(df_status, status_col_map, "Status 1", "")
-        reason_series = safe_get(df_status, status_col_map, "Reason", "")
+        # ====================== DATA CLEANING ======================
+        df_left.columns = [c.strip() for c in df_left.columns]
+        
+        # Proper date parsing (02-12-26 format)
+        df_left["Due date"] = pd.to_datetime(
+            df_left["Due date"], format="%m-%d-%y", errors="coerce"
+        )
+        today = pd.Timestamp.now().normalize()
 
-        # Simple classification counts (case-insensitive)
-        completed_mask = status_series.str.contains("complete|submitted|finished", case=False, na=False)
-        pending_mask = status_series.str.contains("pending|in progress|assigned|no crew", case=False, na=False)
-        overdue_mask = status_series.str.contains("overdue|late", case=False, na=False)
+        # Smart status categorization (handles real free-text entries)
+        def categorize(row):
+            s = str(row.get("Status 1", "")).lower()
+            due = row.get("Due date")
+            
+            if any(x in s for x in ["complete", "submitted", "payment", "finished", "done", "received"]):
+                return "✅ Completed"
+            elif due and due < today and "complete" not in s:
+                return "❌ Overdue"
+            elif any(x in s for x in ["ongoing", "progress", "will be", "try to", "today", "tomorrow", "friday", "monday"]):
+                return "🔄 In Progress"
+            elif any(x in s for x in ["waiting", "pending", "bid", "pricing", "activation"]):
+                return "⏳ Pending / Bid"
+            else:
+                return "📌 Other"
 
-        completed_count = int(completed_mask.sum())
-        pending_count = int(pending_mask.sum())
-        overdue_count = int(overdue_mask.sum())
-        crews_count = int(crew_series.dropna().nunique())
+        df_left["Category"] = df_left.apply(categorize, axis=1)
 
-        # KPI cards
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("✅ Completed", completed_count)
-        k2.metric("🕓 Pending", pending_count)
-        k3.metric("❌ Overdue", overdue_count)
-        k4.metric("👷 Crews", crews_count)
+        # ====================== CALCULATIONS ======================
+        total = len(df_left)
+        completed = (df_left["Category"] == "✅ Completed").sum()
+        overdue = (df_left["Category"] == "❌ Overdue").sum()
+        in_progress = (df_left["Category"] == "🔄 In Progress").sum()
+        pending = (df_left["Category"] == "⏳ Pending / Bid").sum()
+        
+        completion_rate = round((completed / total * 100), 1) if total > 0 else 0
+        active_crews = df_left["CREW NAME"].dropna().nunique()
+
+        # ====================== PREMIUM KPI CARDS ======================
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("📋 Total Properties", total)
+        c2.metric("✅ Completion Rate", f"{completion_rate}%", 
+                  delta=f"{completed} completed")
+        c3.metric("❌ Overdue", overdue, 
+                  help="Past due date & not marked complete")
+        c4.metric("👷 Active Crews", active_crews)
 
         st.markdown("---")
 
-        # Status distribution bar chart (counts)
-        st.markdown("### 📈 Status Distribution")
-        chart_counts = status_series.fillna("unknown").value_counts()
-        # st.bar_chart accepts a series or dataframe with numeric values
-        st.bar_chart(chart_counts)
+        # ====================== INTERACTIVE PIE CHART ======================
+        st.markdown("### 📊 Status Breakdown")
+        fig = px.pie(
+            df_left["Category"].value_counts().reset_index(),
+            names="Category",
+            values="count",
+            color="Category",
+            color_discrete_map={
+                "✅ Completed": "#2ecc71",
+                "❌ Overdue": "#e74c3c",
+                "🔄 In Progress": "#f39c12",
+                "⏳ Pending / Bid": "#3498db",
+                "📌 Other": "#7f8c8d"
+            }
+        )
+        fig.update_traces(textinfo="percent+label", textfont_size=14)
+        fig.update_layout(height=320, margin=dict(t=30, b=10, l=0, r=0), showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("---")
 
-        # --- Latest Property Updates (only from specific tab gid=160282702) ---
+        # ====================== SMART INSIGHTS ======================
+        st.markdown("### 💡 Executive Insights")
+        
+        insight_list = []
+        if overdue > 0:
+            insight_list.append(f"🚨 **{overdue} properties are overdue** — immediate action needed.")
+        if pending >= 2:
+            insight_list.append(f"⏳ **{pending} bids/activations pending** — follow up today.")
+        
+        top_crew = df_left["CREW NAME"].value_counts().idxmax() if not df_left["CREW NAME"].dropna().empty else "N/A"
+        top_count = df_left["CREW NAME"].value_counts().max()
+        insight_list.append(f"🏆 **{top_crew}** is leading with **{top_count}** assignments.")
 
-st.markdown("### 📰 Latest Property Updates")
+        due_soon = df_left[
+            (pd.notna(df_left["Due date"])) & 
+            (df_left["Due date"] <= today + pd.Timedelta(days=7)) &
+            (df_left["Category"] != "✅ Completed")
+        ]
+        if len(due_soon) > 0:
+            insight_list.append(f"📅 **{len(due_soon)} properties due within 7 days**.")
 
+        for ins in insight_list:
+            st.info(ins)
+
+        st.markdown("---")
+
+        # ====================== URGENT TABLE ======================
+        st.markdown("### ⚠️ Urgent Items (Overdue or Due Soon)")
+        urgent = df_left[
+            (df_left["Category"] == "❌ Overdue") |
+            ((pd.notna(df_left["Due date"])) & 
+             (df_left["Due date"] <= today + pd.Timedelta(days=7)) & 
+             (df_left["Category"] != "✅ Completed"))
+        ].copy()
+
+        if not urgent.empty:
+            urgent = urgent[["Property", "CREW NAME", "Due date", "Status 1"]].sort_values("Due date")
+            urgent["Due date"] = urgent["Due date"].dt.strftime("%b %d, %Y")
+            st.dataframe(
+                urgent,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Property": st.column_config.TextColumn("🏠 Property"),
+                    "CREW NAME": st.column_config.TextColumn("👷 Crew"),
+                    "Due date": st.column_config.TextColumn("📅 Due"),
+                    "Status 1": st.column_config.TextColumn("Status")
+                }
+            )
+        else:
+            st.success("🎉 All properties are on track!")
+
+        st.markdown("---")
 # Define the direct URL to that tab
 CSV_URL_UPDATES = "https://docs.google.com/spreadsheets/d/1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY/gviz/tq?tqx=out:csv&gid=160282702"
 
