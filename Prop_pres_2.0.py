@@ -84,7 +84,7 @@ df_updates.columns = [c.strip() for c in df_updates.columns]
 # --------------------------
 # Page layout: Left panel (status) + Right panel (map)
 # --------------------------
-left_col, right_col = st.columns([3, 9])
+left_col, right_col = st.columns([4, 6])
 
 # ---------- LEFT PANEL ----------
 with left_col:
@@ -309,7 +309,7 @@ with right_col:
     """
     m.get_root().html.add_child(folium.Element(legend_html))
     folium.LayerControl(collapsed=True).add_to(m)
-    st_folium(m, width=1100, height=700)
+    st_folium(m, width=900, height=600)
 # --------------------------
 # 📋 Detailed Property Updates Section (below the map)
 # --------------------------
