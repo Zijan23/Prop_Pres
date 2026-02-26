@@ -11,7 +11,8 @@ from shapely.geometry import Point
 from folium import IFrame
 import os
 import plotly.express as px
-from datetime import datetime
+import datetime  # ✅ FIXED: import full module
+# ----------------------------------------------------------------------
 
 # --- Streamlit Page Config ---
 st.set_page_config(page_title="Property Preservation Live Report", layout="wide")
@@ -23,7 +24,7 @@ st.subheader("🔍 Zoom in/out and click on any property to see its details")
 # Helper functions
 # --------------------------
 def normalize_cols(df):
-    """Make a mapping of lower-trimmed column names to original and rename a copy for easy lookups."""
+    """Normalize and map lowercase columns."""
     df = df.copy()
     col_map = {c.strip().lower(): c for c in df.columns}
     df.columns = [c.strip() for c in df.columns]
@@ -31,26 +32,22 @@ def normalize_cols(df):
 
 
 def safe_get(df, col_map, want_name, default=""):
-    """Return series df[col] if present using a case-insensitive match, else default."""
+    """Return series by case-insensitive column name."""
     key = want_name.strip().lower()
     if key in col_map:
         return df[col_map[key]]
-    # not found, return a series of defaults
     return pd.Series([default] * len(df), index=df.index)
 
-
 # --------------------------
-# Load property map data (existing Google Sheet)
+# Load property map data
 # --------------------------
 SHEET_ID = "1AxNmdkDGxYhi0-3-bZGdng-hT1KzxHqpgn_82eqglYg"
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv"
-
 
 @st.cache_data(ttl=180)
 def load_property_sheet(url):
     df = pd.read_csv(url)
     return df
-
 
 try:
     df = load_property_sheet(CSV_URL)
@@ -59,29 +56,22 @@ except Exception as e:
     st.error(f"❌ Failed to load property sheet: {e}")
     df = pd.DataFrame(columns=["W/O Number", "address", "latitude", "longitude", "status", "vendor"])
 
-# Normalize columns for safety
+# Normalize and clean coordinates
 df, prop_col_map = normalize_cols(df)
-
-# Ensure numeric lat/lon
 if "latitude" in df.columns and "longitude" in df.columns:
     df["latitude"] = pd.to_numeric(df["latitude"], errors="coerce")
     df["longitude"] = pd.to_numeric(df["longitude"], errors="coerce")
     df = df.dropna(subset=["latitude", "longitude"])
-else:
-    pass
 
 # --------------------------
-# Load status sheet (left-panel data)
+# Load updates (status sheet)
 # --------------------------
 CSV_URL_UPDATES = "https://docs.google.com/spreadsheets/d/1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY/gviz/tq?tqx=out:csv&gid=160282702"
-
 
 @st.cache_data(ttl=180)
 def load_updates():
     return pd.read_csv(CSV_URL_UPDATES)
 
-
-df_updates = None
 try:
     df_updates = load_updates()
     st.caption(f"✅ Loaded {len(df_updates)} rows from updates tab")
@@ -89,16 +79,14 @@ except Exception as e:
     st.error(f"❌ Failed to load updates tab: {e}")
     df_updates = pd.DataFrame(columns=["Property", "Details", "CREW NAME", "Due date", "Status 1", "Reason"])
 
-# Normalize once here
-if df_updates is not None and not df_updates.empty:
-    df_updates.columns = [c.strip() for c in df_updates.columns]
+df_updates.columns = [c.strip() for c in df_updates.columns]
 
 # --------------------------
-# Page layout: left status panel + right map
+# Page layout: Left panel (status) + Right panel (map)
 # --------------------------
 left_col, right_col = st.columns([3, 9])
 
-# ---------- LEFT: Status Board ----------
+# ---------- LEFT PANEL ----------
 with left_col:
     st.markdown(
         "<h2 style='margin:0 0 8px 0;'>🏠 Property Preservation Status Board</h2>",
@@ -106,14 +94,13 @@ with left_col:
     )
     st.caption("🔴 Live from updates tab (gid=160282702) • Refreshes ~every 3 min")
 
-    if df_updates is None or df_updates.empty:
+    if df_updates.empty:
         st.warning("No status data loaded yet. Check sheet permissions/export link.")
     else:
         df_left = df_updates.copy()
 
-        # Date parsing
+        # ---- Date Parsing ----
         if "Due date" in df_left.columns:
-
             def parse_date(x):
                 if pd.isna(x) or str(x).strip() == "":
                     return pd.NaT
@@ -127,7 +114,7 @@ with left_col:
 
             df_left["Due date"] = df_left["Due date"].apply(parse_date)
 
-        # Categorize function
+        # ---- Categorize ----
         def categorize(row):
             s = str(row.get("Status 1", "")).lower().strip()
             due = row.get("Due date")
@@ -135,7 +122,7 @@ with left_col:
             if any(word in s for word in ["complete", "submitted", "payment", "finished", "done", "received"]):
                 return "✅ Completed"
 
-            if pd.notna(due) and isinstance(due, (pd.Timestamp, datetime.date, datetime.datetime)):
+            if pd.notna(due) and isinstance(due, (pd.Timestamp, datetime.datetime)):
                 today_dt = pd.Timestamp.today().normalize()
                 if due < today_dt:
                     return "❌ Overdue"
@@ -150,7 +137,7 @@ with left_col:
 
         df_left["Category"] = df_left.apply(categorize, axis=1)
 
-        # Metrics
+        # ---- KPIs ----
         total = len(df_left)
         completed = (df_left["Category"] == "✅ Completed").sum()
         overdue = (df_left["Category"] == "❌ Overdue").sum()
@@ -167,10 +154,10 @@ with left_col:
 
         st.markdown("---")
 
-        # Pie Chart
+        # ---- Status Breakdown Chart ----
         st.markdown("### 📊 Status Breakdown")
         fig = px.pie(
-            df_left["Category"].value_counts().reset_index(),
+            df_left["Category"].value_counts().reset_index(name="count"),
             names="Category",
             values="count",
             color="Category",
@@ -188,20 +175,21 @@ with left_col:
 
         st.markdown("---")
 
-        # Executive Insights
+        # ---- Executive Insights ----
         st.markdown("### 💡 Executive Insights")
 
+        today = pd.Timestamp.today()
         insight_list = []
         if overdue > 0:
             insight_list.append(f"🚨 **{overdue} properties are overdue** — immediate action needed.")
         if pending >= 2:
             insight_list.append(f"⏳ **{pending} bids/activations pending** — follow up today.")
 
-        top_crew = df_left["CREW NAME"].value_counts().idxmax() if not df_left["CREW NAME"].dropna().empty else "N/A"
-        top_count = df_left["CREW NAME"].value_counts().max()
-        insight_list.append(f"🏆 **{top_crew}** is leading with **{top_count}** assignments.")
+        if not df_left["CREW NAME"].dropna().empty:
+            top_crew = df_left["CREW NAME"].value_counts().idxmax()
+            top_count = df_left["CREW NAME"].value_counts().max()
+            insight_list.append(f"🏆 **{top_crew}** is leading with **{top_count}** assignments.")
 
-        today = pd.Timestamp.today()
         due_soon = df_left[
             (pd.notna(df_left["Due date"])) &
             (df_left["Due date"] <= today + pd.Timedelta(days=7)) &
@@ -215,7 +203,7 @@ with left_col:
 
         st.markdown("---")
 
-        # Urgent Items
+        # ---- Urgent Items ----
         st.markdown("### ⚠️ Urgent Items (Overdue or Due Soon)")
         urgent = df_left[
             (df_left["Category"] == "❌ Overdue") |
@@ -241,9 +229,7 @@ with left_col:
         else:
             st.success("🎉 All properties are on track!")
 
-        st.markdown("---")
-
-# ---------- RIGHT: Map ----------
+# ---------- RIGHT PANEL ----------
 with right_col:
     if not df.empty and "latitude" in df.columns and "longitude" in df.columns:
         map_center = [df["latitude"].mean(), df["longitude"].mean()]
@@ -257,7 +243,7 @@ with right_col:
 
     marker_cluster = MarkerCluster().add_to(m)
 
-    if not df.empty and "latitude" in df.columns and "longitude" in df.columns:
+    if not df.empty:
         try:
             gdf = gpd.GeoDataFrame(df, geometry=[Point(xy) for xy in zip(df["longitude"], df["latitude"])], crs="EPSG:4326")
         except Exception:
@@ -265,10 +251,10 @@ with right_col:
 
         if gdf is not None:
             for _, row in gdf.iterrows():
-                wo = row.get(prop_col_map.get("w/o number", "W/O Number"), row.get("W/O Number", ""))
-                address = row.get(prop_col_map.get("address", "address"), row.get("address", ""))
-                status = row.get(prop_col_map.get("status", "status"), row.get("status", ""))
-                vendor = row.get(prop_col_map.get("vendor", "vendor"), row.get("vendor", ""))
+                wo = row.get(prop_col_map.get("w/o number", "W/O Number"), "")
+                address = row.get(prop_col_map.get("address", "address"), "")
+                status = row.get(prop_col_map.get("status", "status"), "")
+                vendor = row.get(prop_col_map.get("vendor", "vendor"), "")
 
                 popup_html = f"""
                     <div style='font-size:13px;'>
@@ -295,7 +281,13 @@ with right_col:
                 tooltip=folium.features.GeoJsonTooltip(fields=["address"], aliases=["Address:"])
             ).add_to(m)
 
-            Search(layer=geojson_layer, search_label="address", placeholder="🔍 Search address or W/O", collapsed=False, search_zoom=16).add_to(m)
+            Search(
+                layer=geojson_layer,
+                search_label="address",
+                placeholder="🔍 Search address or W/O",
+                collapsed=False,
+                search_zoom=16
+            ).add_to(m)
 
     legend_html = """
     <div style="
