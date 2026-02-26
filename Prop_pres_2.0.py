@@ -310,3 +310,63 @@ with right_col:
     m.get_root().html.add_child(folium.Element(legend_html))
     folium.LayerControl(collapsed=True).add_to(m)
     st_folium(m, width=1100, height=700)
+# --------------------------
+# 📋 Detailed Property Updates Section (below the map)
+# --------------------------
+st.markdown("---")
+st.markdown("## 🧾 Latest Property Updates")
+
+if not df_updates.empty:
+    # Normalize and sort
+    df_updates.columns = [c.strip() for c in df_updates.columns]
+    if "Due date" in df_updates.columns:
+        try:
+            df_updates["Due date"] = pd.to_datetime(df_updates["Due date"], errors="coerce")
+            df_updates = df_updates.sort_values("Due date", ascending=True)
+        except Exception:
+            pass
+
+    with st.container():
+        st.markdown(
+            """
+            <div style="max-height:500px; overflow-y:auto; padding-right:10px;">
+            """,
+            unsafe_allow_html=True
+        )
+
+        for _, row in df_updates.iterrows():
+            prop = row.get("Property", "")
+            details = row.get("Details", "")
+            crew = row.get("CREW NAME", "")
+            due = row.get("Due date", "")
+            status = row.get("Status 1", "")
+            reason = row.get("Reason", "")
+
+            s = str(status).lower()
+            if "complete" in s:
+                color = "#2ecc71"
+            elif "overdue" in s or "late" in s:
+                color = "#e74c3c"
+            elif "pending" in s or "in progress" in s:
+                color = "#f39c12"
+            else:
+                color = "#3498db"
+
+            st.markdown(
+                f"""
+                <div style="background-color:{color}15; border-left:4px solid {color};
+                            padding:10px; border-radius:6px; margin-bottom:8px;">
+                    <b>🏠 Property:</b> {prop}<br>
+                    <b>🧾 Details:</b> {details}<br>
+                    <b>👷 Crew:</b> {crew}<br>
+                    <b>📅 Due:</b> {due}<br>
+                    <b>📊 Status:</b> {status}<br>
+                    <b>💬 Reason:</b> {reason}
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+else:
+    st.info("No recent property updates available.")
