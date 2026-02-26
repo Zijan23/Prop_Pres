@@ -74,19 +74,16 @@ SHEET_ID_STATS = "1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY"
 CSV_URL_STATS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_STATS}/gviz/tq?tqx=out:csv"
 
 @st.cache_data(ttl=180)
-def load_status_sheet(url):
-    df = pd.read_csv(url)
-    return df
+def load_latest_updates():
+    return pd.read_csv(CSV_URL_UPDATES)
 
+df_updates = None
 try:
-    df_status = load_status_sheet(CSV_URL_STATS)
-    # normalize
-    df_status, status_col_map = normalize_cols(df_status)
-    st.success("✅ Live status data loaded")
+    df_updates = load_latest_updates()
+    st.success("Status & updates loaded from clean tab", icon="✅")   # optional feedback
 except Exception as e:
-    st.error(f"❌ Failed to load status sheet: {e}")
-    df_status = pd.DataFrame(columns=["Property","Details","CREW NAME","Due date","Status 1","Reason"])
-    df_status, status_col_map = normalize_cols(df_status)
+    st.error(f"Could not load status tab: {e}")
+    df_updates = pd.DataFrame(columns=["Property", "Details", "CREW NAME", "Due date", "Status 1", "Reason"])
 
 # --------------------------
 # Page layout: left status panel + right map
@@ -94,29 +91,15 @@ except Exception as e:
 left_col, right_col = st.columns([3, 9])  # adjust widths: left smaller, right larger
 
 # ---------- LEFT: Status Board ----------
-# ---------- LEFT: Premium Status Board ----------
+# ── LEFT: Premium Status Board ──
 with left_col:
-    st.markdown(
-        "<h2 style='margin:0 0 8px 0;'>🏠 Property Preservation Status Board</h2>",
-        unsafe_allow_html=True
-    )
-    st.caption("🔴 Live from Google Sheet • Auto-refreshes every 3 minutes")
+    st.markdown("<h2 ...", unsafe_allow_html=True)
+    st.caption("...")
 
-    # Use the CLEAN tab (this fixes the "not updating" issue)
-    df_left = df_updates.copy()
-
-    if df_left.empty:
-        st.warning("No status data available yet.")
+    if df_updates is None or df_updates.empty:
+        st.warning("No status data loaded yet.")
     else:
-        # ====================== DATA CLEANING ======================
-        df_left.columns = [c.strip() for c in df_left.columns]
-        
-        # Proper date parsing (02-12-26 format)
-        df_left["Due date"] = pd.to_datetime(
-            df_left["Due date"], format="%m-%d-%y", errors="coerce"
-        )
-        today = pd.Timestamp.now().normalize()
-
+        df_left = df_updates.copy()
         # Smart status categorization (handles real free-text entries)
         def categorize(row):
             s = str(row.get("Status 1", "")).lower()
