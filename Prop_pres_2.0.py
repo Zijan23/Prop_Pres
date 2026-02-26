@@ -112,28 +112,44 @@ with left_col:
 
         # Date parsing - your sheet uses DD/MM/YY or mixed → coerce + infer
         if "Due date" in df_left.columns:
-            df_left["Due date"] = pd.to_datetime(df_left["Due date"], errors="coerce", dayfirst=True)
-
-        today = datetime.now().date()   # use datetime.date for comparison
+            def parse_date(x):
+                if pd.isna(x) or str(x).strip() == "":
+                    return pd.NaT
+                x_str = str(x).strip()
+                for fmt in ["%d/%m/%Y", "%m/%d/%y", "%m/%d/%Y", "%d-%m-%y", "%d-%m-%Y"]:
+                    try:
+                        return pd.to_datetime(x_str, format=fmt, errors="raise")
+                    except:
+                        pass
+                # Final fallback
+                return pd.to_datetime(x_str, errors="coerce", dayfirst=True)
+            df_left["Due date"] = df_left["Due date"].apply(parse_date)
 
         # Categorize function (updated slightly for robustness)
-        def categorize(row):
-            s = str(row.get("Status 1", "")).lower().strip()
-            due = row.get("Due date")
+def categorize(row):
+    s = str(row.get("Status 1", "")).lower().strip()
+    due = row.get("Due date")  # this should now be datetime or NaT
 
-            if pd.isna(due):
-                due = None
+    # Completed keywords take priority (even if overdue)
+    if any(word in s for word in ["complete", "submitted", "payment", "finished", "done", "received"]):
+        return "✅ Completed"
 
-            if any(word in s for word in ["complete", "submitted", "payment", "finished", "done", "received"]):
-                return "✅ Completed"
-            elif due and due < today and "complete" not in s:
-                return "❌ Overdue"
-            elif any(word in s for word in ["ongoing", "progress", "will be", "try to", "today", "tomorrow", "friday", "monday"]):
-                return "🔄 In Progress"
-            elif any(word in s for word in ["waiting", "pending", "bid", "pricing", "activation"]):
-                return "⏳ Pending / Bid"
-            else:
-                return "📌 Other"
+    # Overdue: only if due is a valid datetime, is in the past, and not already marked complete
+    if pd.notna(due) and isinstance(due, (pd.Timestamp, datetime.date, datetime.datetime)):
+        # Convert today to the same type for fair comparison
+        today_dt = pd.Timestamp(today).normalize() if isinstance(due, pd.Timestamp) else today
+        if due < today_dt:
+            return "❌ Overdue"
+
+    # In Progress keywords
+    if any(word in s for word in ["ongoing", "progress", "will be", "try to", "today", "tomorrow", "friday", "monday"]):
+        return "🔄 In Progress"
+
+    # Pending/Bid keywords
+    if any(word in s for word in ["waiting", "pending", "bid", "pricing", "activation"]):
+        return "⏳ Pending / Bid"
+
+    return "📌 Other"
 
         df_left["Category"] = df_left.apply(categorize, axis=1)
 
