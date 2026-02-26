@@ -70,7 +70,10 @@ else:
 # --------------------------
 # Load status sheet (the new left-panel data)
 # ── IMPORTANT: Load the CLEAN STATUS TAB here (this defines df_updates) ──
-CSV_URL_UPDATES = "https://docs.google.com/spreadsheets/d/1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY/gviz/tq?tqx=out:csv&gid=160282702"
+# Load status sheet (the new left-panel data)
+# --------------------------
+SHEET_ID_STATS = "1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY"
+CSV_URL_STATS = f"https://docs.google.com/spreadsheets/d/{SHEET_ID_STATS}/gviz/tq?tqx=out:csv"
 
 @st.cache_data(ttl=180)
 def load_latest_updates():
