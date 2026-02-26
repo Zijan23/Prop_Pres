@@ -309,7 +309,7 @@ with right_col:
     """
     m.get_root().html.add_child(folium.Element(legend_html))
     folium.LayerControl(collapsed=True).add_to(m)
-    st_folium(m, width=1000, height=700)
+    st_folium(m, width=800, height=700)
 # --------------------------
 # 📋 Detailed Property Updates Section (below the map)
 # --------------------------
