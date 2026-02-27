@@ -175,33 +175,54 @@ with left_col:
 
         st.markdown("---")
 
-        # ---- Executive Insights ----
+        # ====================== SMART INSIGHTS (now clickable) ======================
         st.markdown("### 💡 Executive Insights")
 
-        today = pd.Timestamp.today()
-        insight_list = []
-        if overdue > 0:
-            insight_list.append(f"🚨 **{overdue} properties are overdue** — immediate action needed.")
-        if pending >= 2:
-            insight_list.append(f"⏳ **{pending} bids/activations pending** — follow up today.")
-
-        if not df_left["CREW NAME"].dropna().empty:
-            top_crew = df_left["CREW NAME"].value_counts().idxmax()
-            top_count = df_left["CREW NAME"].value_counts().max()
-            insight_list.append(f"🏆 **{top_crew}** is leading with **{top_count}** assignments.")
-
-        due_soon = df_left[
+        # We'll collect filtered dataframes for each insight type
+        today = pd.Timestamp.today().normalize()
+        overdue_df = df_left[df_left["Category"] == "❌ Overdue"].copy()
+        pending_df = df_left[df_left["Category"] == "⏳ Pending / Bid"].copy()
+        due_soon_df = df_left[
             (pd.notna(df_left["Due date"])) &
             (df_left["Due date"] <= today + pd.Timedelta(days=7)) &
             (df_left["Category"] != "✅ Completed")
-        ]
-        if len(due_soon) > 0:
-            insight_list.append(f"📅 **{len(due_soon)} properties due within 7 days**.")
+        ].copy()
 
-        for ins in insight_list:
-            st.info(ins)
+        # Helper to display filtered table in expander
+        def show_filtered_table(title, filtered_df, key_prefix):
+            if filtered_df.empty:
+                st.caption("No matching properties.")
+                return
+            # Format dates nicely
+            if "Due date" in filtered_df.columns:
+                filtered_df["Due date"] = filtered_df["Due date"].dt.strftime("%b %d, %Y")
+            st.dataframe(
+                filtered_df[["Property", "CREW NAME", "Due date", "Status 1"]],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Property": "🏠 Property / Address",
+                    "CREW NAME": "👷 Crew",
+                    "Due date": "📅 Due",
+                    "Status 1": "Status"
+                },
+                key=f"{key_prefix}_table"
+            )
 
-        st.markdown("---")
+        # Clickable insights using expanders (clean, in-app, no page jump needed)
+        with st.expander(f"🚨 {overdue} properties are overdue — immediate action needed", expanded=overdue > 0):
+            show_filtered_table("Overdue Properties", overdue_df, "overdue")
+
+        with st.expander(f"⏳ {pending} bids/activations pending — follow up today", expanded=pending >= 2):
+            show_filtered_table("Pending / Bid Properties", pending_df, "pending")
+
+        # Top crew info
+        top_crew = df_left["CREW NAME"].value_counts().idxmax() if not df_left["CREW NAME"].dropna().empty else "N/A"
+        top_count = df_left["CREW NAME"].value_counts().max()
+        st.info(f"🏆 **{top_crew}** is leading with **{top_count}** assignments.")
+
+        with st.expander(f"📅 {len(due_soon_df)} properties due within 7 days", expanded=len(due_soon_df) > 0):
+            show_filtered_table("Due Soon Properties", due_soon_df, "due_soon")
 
         # ---- Urgent Items ----
         st.markdown("### ⚠️ Urgent Items (Overdue or Due Soon)")
@@ -310,6 +331,7 @@ with right_col:
     m.get_root().html.add_child(folium.Element(legend_html))
     folium.LayerControl(collapsed=True).add_to(m)
     st_folium(m, width=800, height=700)
+
 # --------------------------
 # 📋 Detailed Property Updates Section (below the map)
 # --------------------------
