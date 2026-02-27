@@ -1,5 +1,6 @@
-# app.py - CPP Dashboard (updated left-panel status board + map)
+# app.py - CPP Dashboard (updated robust overdue detection + clean layout)
 # -*- coding: utf-8 -*-
+
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
@@ -10,10 +11,14 @@ from shapely.geometry import Point
 from folium import IFrame
 import os
 import plotly.express as px
-from datetime import datetime
+import datetime
+import dateutil.parser  # ✅ added for flexible date parsing
+
+# ----------------------------------------------------------------------
 
 # --- Streamlit Page Config ---
 st.set_page_config(page_title="Property Preservation Live Report", layout="wide")
+
 st.title("🏠 CPP Dashboard")
 st.subheader("🔍 Zoom in/out and click on any property to see its details")
 
@@ -26,6 +31,7 @@ def normalize_cols(df):
     col_map = {c.strip().lower(): c for c in df.columns}
     df.columns = [c.strip() for c in df.columns]
     return df, col_map
+
 
 def safe_get(df, col_map, want_name, default=""):
     """Return series by case-insensitive column name."""
@@ -42,7 +48,8 @@ CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:cs
 
 @st.cache_data(ttl=180)
 def load_property_sheet(url):
-    return pd.read_csv(url)
+    df = pd.read_csv(url)
+    return df
 
 try:
     df = load_property_sheet(CSV_URL)
@@ -51,15 +58,15 @@ except Exception as e:
     st.error(f"❌ Failed to load property sheet: {e}")
     df = pd.DataFrame(columns=["W/O Number", "address", "latitude", "longitude", "status", "vendor"])
 
+# Normalize and clean coordinates
 df, prop_col_map = normalize_cols(df)
-
 if "latitude" in df.columns and "longitude" in df.columns:
     df["latitude"] = pd.to_numeric(df["latitude"], errors="coerce")
     df["longitude"] = pd.to_numeric(df["longitude"], errors="coerce")
     df = df.dropna(subset=["latitude", "longitude"])
 
 # --------------------------
-# Load updates (status sheet - specific tab)
+# Load updates (status sheet)
 # --------------------------
 CSV_URL_UPDATES = "https://docs.google.com/spreadsheets/d/1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY/gviz/tq?tqx=out:csv&gid=160282702"
 
@@ -67,7 +74,6 @@ CSV_URL_UPDATES = "https://docs.google.com/spreadsheets/d/1Qkknd1fVrZ1uiTjqOFzEy
 def load_updates():
     return pd.read_csv(CSV_URL_UPDATES)
 
-df_updates = None
 try:
     df_updates = load_updates()
     st.caption(f"✅ Loaded {len(df_updates)} rows from updates tab")
@@ -75,11 +81,10 @@ except Exception as e:
     st.error(f"❌ Failed to load updates tab: {e}")
     df_updates = pd.DataFrame(columns=["Property", "Details", "CREW NAME", "Due date", "Status 1", "Reason"])
 
-if df_updates is not None:
-    df_updates.columns = [c.strip() for c in df_updates.columns]
+df_updates.columns = [c.strip() for c in df_updates.columns]
 
 # --------------------------
-# Page layout
+# Page layout: Left panel (status) + Right panel (map)
 # --------------------------
 left_col, right_col = st.columns([4, 6])
 
@@ -91,42 +96,48 @@ with left_col:
     )
     st.caption("🔴 Live from updates tab (gid=160282702) • Refreshes ~every 3 min")
 
-    if df_updates is None or df_updates.empty:
+    if df_updates.empty:
         st.warning("No status data loaded yet. Check sheet permissions/export link.")
     else:
         df_left = df_updates.copy()
+        today = pd.Timestamp.today().normalize()
 
-        # ---- Robust Date Parsing ----
+        # ---- Date Parsing ----
         if "Due date" in df_left.columns:
             def parse_date(x):
-                if pd.isna(x) or str(x).strip() == "":
+                if pd.isna(x):
                     return pd.NaT
-                x_str = str(x).strip()
-                for fmt in ["%d/%m/%Y", "%m/%d/%y", "%m/%d/%Y", "%d-%m-%y", "%d-%m-%Y"]:
+                s = str(x).strip()
+                if s == "" or s.lower() in ["none", "nan", "n/a", "na"]:
+                    return pd.NaT
+                for fmt in ["%d/%m/%Y", "%m/%d/%y", "%m/%d/%Y", "%d-%m-%y", "%d-%m-%Y", "%b %d, %Y", "%Y-%m-%d"]:
                     try:
-                        return pd.to_datetime(x_str, format=fmt, errors="raise")
-                    except:
+                        return pd.to_datetime(s, format=fmt, errors="raise")
+                    except Exception:
                         pass
-                return pd.to_datetime(x_str, errors="coerce", dayfirst=True)
+                try:
+                    dt = dateutil.parser.parse(s, dayfirst=False, fuzzy=True)
+                    return pd.to_datetime(dt).normalize()
+                except Exception:
+                    return pd.to_datetime(s, errors="coerce", dayfirst=True)
 
             df_left["Due date"] = df_left["Due date"].apply(parse_date)
 
-        # Debug: show date types (comment out after testing)
-        # st.caption("Due date types: " + str(df_left["Due date"].apply(lambda x: type(x).__name__ if pd.notna(x) else 'NaT').value_counts().to_dict()))
-
-        # ---- Categorize function (safe comparison) ----
+        # ---- Categorize ----
         def categorize(row):
             s = str(row.get("Status 1", "")).lower().strip()
             due = row.get("Due date")
 
-            # Completed has priority
+            # Explicit overdue markers in text
+            if any(word in s for word in ["overdue", "late"]):
+                return "❌ Overdue"
+
             if any(word in s for word in ["complete", "submitted", "payment", "finished", "done", "received"]):
                 return "✅ Completed"
 
-            # Overdue check only if valid datetime
-            if pd.notna(due) and isinstance(due, pd.Timestamp):
-                today_dt = pd.Timestamp.today().normalize()
-                if due < today_dt:
+            # Date-based overdue detection
+            if pd.notna(due) and isinstance(due, (pd.Timestamp, datetime.datetime)):
+                if due.normalize() < today:
                     return "❌ Overdue"
 
             if any(word in s for word in ["ongoing", "progress", "will be", "try to", "today", "tomorrow", "friday", "monday"]):
@@ -138,6 +149,20 @@ with left_col:
             return "📌 Other"
 
         df_left["Category"] = df_left.apply(categorize, axis=1)
+
+        # Debug expander for problem addresses
+        with st.expander("🔎 Debug: show TX/ID overdue check", expanded=False):
+            suspects = df_left[
+                df_left["Property"].astype(str).str.lower().str.contains("eagles nest", na=False) |
+                df_left["Property"].astype(str).str.lower().str.contains("nebraska st", na=False)
+            ].copy()
+            if suspects.empty:
+                st.write("No rows found matching those substrings.")
+            else:
+                st.dataframe(
+                    suspects[["Property", "CREW NAME", "Due date", "Status 1", "Category"]],
+                    use_container_width=True
+                )
 
         # ---- KPIs ----
         total = len(df_left)
@@ -156,7 +181,7 @@ with left_col:
 
         st.markdown("---")
 
-        # ---- Pie Chart ----
+        # ---- Status Breakdown Chart ----
         st.markdown("### 📊 Status Breakdown")
         fig = px.pie(
             df_left["Category"].value_counts().reset_index(name="count"),
@@ -177,10 +202,9 @@ with left_col:
 
         st.markdown("---")
 
-        # ---- Executive Insights (clickable expanders) ----
+        # ====================== SMART INSIGHTS ======================
         st.markdown("### 💡 Executive Insights")
 
-        today = pd.Timestamp.today().normalize()
         overdue_df = df_left[df_left["Category"] == "❌ Overdue"].copy()
         pending_df = df_left[df_left["Category"] == "⏳ Pending / Bid"].copy()
         due_soon_df = df_left[
@@ -191,7 +215,7 @@ with left_col:
 
         def show_filtered_table(title, filtered_df, key_prefix):
             if filtered_df.empty:
-                st.caption("No matching properties found.")
+                st.caption("No matching properties.")
                 return
             if "Due date" in filtered_df.columns:
                 filtered_df["Due date"] = filtered_df["Due date"].dt.strftime("%b %d, %Y")
@@ -208,20 +232,20 @@ with left_col:
                 key=f"{key_prefix}_table"
             )
 
-        with st.expander(f"🚨 {overdue} properties are overdue — immediate action needed", expanded=overdue > 0):
+        with st.expander(f"🚨 {len(overdue_df)} properties are overdue — immediate action needed", expanded=len(overdue_df) > 0):
             show_filtered_table("Overdue Properties", overdue_df, "overdue")
 
-        with st.expander(f"⏳ {pending} bids/activations pending — follow up today", expanded=pending >= 2):
+        with st.expander(f"⏳ {len(pending_df)} bids/activations pending — follow up today", expanded=len(pending_df) >= 2):
             show_filtered_table("Pending / Bid Properties", pending_df, "pending")
 
         top_crew = df_left["CREW NAME"].value_counts().idxmax() if not df_left["CREW NAME"].dropna().empty else "N/A"
-        top_count = df_left["CREW NAME"].value_counts().max()
+        top_count = df_left["CREW NAME"].value_counts().max() if not df_left["CREW NAME"].dropna().empty else 0
         st.info(f"🏆 **{top_crew}** is leading with **{top_count}** assignments.")
 
         with st.expander(f"📅 {len(due_soon_df)} properties due within 7 days", expanded=len(due_soon_df) > 0):
             show_filtered_table("Due Soon Properties", due_soon_df, "due_soon")
 
-        # ---- Urgent Items Table ----
+        # ---- Urgent Items ----
         st.markdown("### ⚠️ Urgent Items (Overdue or Due Soon)")
         urgent = df_left[
             (df_left["Category"] == "❌ Overdue") |
@@ -229,6 +253,7 @@ with left_col:
              (df_left["Due date"] <= today + pd.Timedelta(days=7)) &
              (df_left["Category"] != "✅ Completed"))
         ].copy()
+
         if not urgent.empty:
             urgent = urgent[["Property", "CREW NAME", "Due date", "Status 1"]].sort_values("Due date")
             urgent["Due date"] = urgent["Due date"].dt.strftime("%b %d, %Y")
@@ -246,7 +271,7 @@ with left_col:
         else:
             st.success("🎉 All properties are on track!")
 
-# ---------- RIGHT PANEL (Map) ----------
+# ---------- RIGHT PANEL ----------
 with right_col:
     if not df.empty and "latitude" in df.columns and "longitude" in df.columns:
         map_center = [df["latitude"].mean(), df["longitude"].mean()]
@@ -262,11 +287,7 @@ with right_col:
 
     if not df.empty:
         try:
-            gdf = gpd.GeoDataFrame(
-                df,
-                geometry=[Point(xy) for xy in zip(df["longitude"], df["latitude"])],
-                crs="EPSG:4326"
-            )
+            gdf = gpd.GeoDataFrame(df, geometry=[Point(xy) for xy in zip(df["longitude"], df["latitude"])], crs="EPSG:4326")
         except Exception:
             gdf = None
 
@@ -310,15 +331,14 @@ with right_col:
                 search_zoom=16
             ).add_to(m)
 
-    # Legend
     legend_html = """
     <div style="
-        position: fixed;
-        bottom: 40px; left: 40px; width: 180px; height: 100px;
-        background-color: white;
-        border:2px solid grey;
-        z-index:9999;
-        font-size:14px;
+        position: fixed; 
+        bottom: 40px; left: 40px; width: 180px; height: 100px; 
+        background-color: white; 
+        border:2px solid grey; 
+        z-index:9999; 
+        font-size:14px; 
         border-radius:8px;
         padding:10px;
         box-shadow:2px 2px 5px rgba(0,0,0,0.3);
@@ -331,29 +351,31 @@ with right_col:
     """
     m.get_root().html.add_child(folium.Element(legend_html))
     folium.LayerControl(collapsed=True).add_to(m)
-
     st_folium(m, width=800, height=700)
 
 # --------------------------
-# Latest Property Updates (scrollable feed below map)
+# 📋 Detailed Property Updates Section (below the map)
 # --------------------------
 st.markdown("---")
 st.markdown("## 🧾 Latest Property Updates")
 
 if not df_updates.empty:
-    # Sort if possible
+    df_updates.columns = [c.strip() for c in df_updates.columns]
     if "Due date" in df_updates.columns:
         try:
             df_updates["Due date"] = pd.to_datetime(df_updates["Due date"], errors="coerce")
             df_updates = df_updates.sort_values("Due date", ascending=True)
-        except:
+        except Exception:
             pass
 
     with st.container():
         st.markdown(
-            '<div style="max-height:500px; overflow-y:auto; padding-right:10px;">',
+            """
+            <div style="max-height:500px; overflow-y:auto; padding-right:10px;">
+            """,
             unsafe_allow_html=True
         )
+
         for _, row in df_updates.iterrows():
             prop = row.get("Property", "")
             details = row.get("Details", "")
@@ -389,3 +411,4 @@ if not df_updates.empty:
         st.markdown("</div>", unsafe_allow_html=True)
 else:
     st.info("No recent property updates available.")
+
