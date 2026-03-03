@@ -1,13 +1,24 @@
-streamlit==1.32.0
-pandas==2.1.4
-numpy==1.26.4
-plotly==5.18.0
-folium==0.15.0
-streamlit-folium==0.18.0
-streamlit-option-menu==0.3.12
+# Core - Compatible with Python 3.13
+streamlit==1.40.0
+pandas==2.2.3
+numpy==2.1.3
+plotly==5.24.0
+
+# Folium/Map - Fixed version conflict
+folium==0.18.0
+streamlit-folium==0.23.2
+
+# UI Components
+streamlit-option-menu==0.4.0
 streamlit-card==1.0.0
-shapely==2.0.2
-geopandas==0.14.2
-pyproj==3.6.1
-packaging==23.2
+
+# Geospatial - Use pre-built wheels only (no compilation)
+geopandas==1.0.1
+shapely==2.0.6
+pyproj==3.7.0
+
+# Required deps
+packaging==24.2
+setuptools>=75.0.0
+
 
