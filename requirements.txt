@@ -1,7 +1,10 @@
-streamlit
-folium
-geopandas
-pandas
-shapely
-streamlit-folium
-plotly
+streamlit==1.28.0
+pandas==2.0.3
+geopandas==0.13.2
+folium==0.14.0
+streamlit-folium==0.15.0
+plotly==5.17.0
+shapely==2.0.2
+streamlit-option-menu==0.3.6
+streamlit-card==1.0.0
+
