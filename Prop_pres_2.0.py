@@ -267,7 +267,7 @@ def parse_date(x):
     if pd.isna(x) or str(x).strip() == "":
         return pd.NaT
     x_str = str(x).strip()
-    formats = ["%d/%m/%Y", "%m/%d/%y", "%m/%d/%Y", "%d-%m-%y", "%d-%m-%Y", 
+    formats = ["%m/%d/%y", "%m/%d/%Y", "%d-%m-%y", "%d-%m-%Y", 
                "%Y-%m-%d", "%d/%m/%y", "%m-%d-%Y", "%m-%d-%y"]
     for fmt in formats:
         try:
