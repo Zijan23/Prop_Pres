@@ -801,7 +801,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ----------------------------------------------------------------------
-# Database Setup for Historical Data
+# Database Setup for Historical Dataa
 # ----------------------------------------------------------------------
 DB_PATH = "property_preservation.db"
 
