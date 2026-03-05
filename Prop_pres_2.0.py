@@ -1,6 +1,5 @@
 enhanced_code = '''# app.py - Property Preservation Pro Dashboard with AI Agent
 # -*- coding: utf-8 -*-
-
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
@@ -28,20 +27,17 @@ import re
 # Option 1: Groq (Recommended - $5 free credit, no CC required)
 # Get key at: https://console.groq.com/keys
 # Default key below is placeholder - replace with your actual key
-
 # Option 2: OpenRouter (Free tier available)
 # Get key at: https://openrouter.ai/keys
-
 # Option 3: Google AI Studio (Gemini - completely free)
 # Get key at: https://aistudio.google.com/app/apikey
-
 AI_CONFIG = {
-    "provider": "groq",  # Change to "openrouter" or "gemini" as needed
+    "provider": "groq", # Change to "openrouter" or "gemini" as needed
     "groq_api_key": os.getenv("GROQ_API_KEY", "gsk_your_free_groq_key_here"),
     "openrouter_api_key": os.getenv("OPENROUTER_API_KEY", "sk-or-v1-your-openrouter-key"),
     "gemini_api_key": os.getenv("GEMINI_API_KEY", "your-gemini-key"),
-    "model": "llama-3.1-8b-instant",  # Fast and capable (Groq)
-    # "model": "google/gemma-2-9b-it",  # Alternative for OpenRouter
+    "model": "llama-3.1-8b-instant", # Fast and capable (Groq)
+    # "model": "google/gemma-2-9b-it", # Alternative for OpenRouter
     "temperature": 0.7,
     "max_tokens": 1024
 }
@@ -59,17 +55,15 @@ class PropertyAIAgent:
         self.system_prompt = self._create_system_prompt()
         
     def _create_system_prompt(self):
-        return """You are "Preservation Pal" 🤖🏠, an AI assistant for a Property Preservation Dashboard. 
+        return """You are "Preservation Pal" 🤖🏠, an AI assistant for a Property Preservation Dashboard.
         
 Your personality is friendly, helpful, and slightly playful - you love helping property managers stay organized!
-
 CAPABILITIES:
 1. 🔍 FIND PROPERTIES - Search through property database by name, address, crew, or status
 2. 📊 CHECK STATUS - Report on property statuses (Overdue, In Progress, Completed, Pending)
 3. 💡 GENERATE INSIGHTS - Analyze data and provide actionable recommendations
 4. ⏰ SET REMINDERS - Help track due dates and flag urgent items
 5. ❓ ANSWER QUESTIONS - Explain the dashboard, data, or property management concepts
-
 RULES:
 - Always respond in a warm, professional tone with occasional relevant emojis
 - When asked about properties, reference the actual data provided in context
@@ -77,7 +71,6 @@ RULES:
 - For overdue properties, show urgency but remain solution-oriented
 - Keep responses concise but informative (2-4 paragraphs max)
 - If asked to perform actions beyond your capabilities (like modifying data), explain that you can guide the user on how to do it manually
-
 CURRENT CONTEXT:
 You are analyzing a property preservation database with work orders, crew assignments, due dates, and status tracking. The dashboard integrates with Google Sheets for live data."""
 
@@ -117,7 +110,7 @@ You are analyzing a property preservation database with work orders, crew assign
             
         except Exception as e:
             return f"😅 Oops! I had a little hiccup: {str(e)}\\n\\nPlease check your API key or try again in a moment!"
-    
+
     def _query_groq(self, messages):
         """Query Groq API (Free tier: $5 credit, fast inference)"""
         headers = {
@@ -146,7 +139,7 @@ You are analyzing a property preservation database with work orders, crew assign
             if "invalid api key" in error_msg.lower():
                 return "🔑 Hmm, my brain key seems to be invalid! Please check your GROQ_API_KEY configuration."
             raise Exception(f"API Error: {error_msg}")
-    
+
     def _query_openrouter(self, messages):
         """Query OpenRouter API (Free tier available)"""
         headers = {
@@ -157,7 +150,7 @@ You are analyzing a property preservation database with work orders, crew assign
         }
         
         data = {
-            "model": "google/gemma-2-9b-it",  # Free tier model
+            "model": "google/gemma-2-9b-it", # Free tier model
             "messages": messages,
             "temperature": self.config["temperature"],
             "max_tokens": self.config["max_tokens"]
@@ -174,7 +167,7 @@ You are analyzing a property preservation database with work orders, crew assign
             return response.json()["choices"][0]["message"]["content"]
         else:
             raise Exception(f"OpenRouter Error: {response.text}")
-    
+
     def _query_gemini(self, messages):
         """Query Google Gemini API (Completely free tier)"""
         # Convert messages to Gemini format
@@ -206,7 +199,7 @@ You are analyzing a property preservation database with work orders, crew assign
             return "🤔 I couldn't generate a response. Try rephrasing your question!"
         else:
             raise Exception(f"Gemini Error: {response.text}")
-    
+
     def _format_context(self, data):
         """Format property data for AI context"""
         if data is None or data.empty:
@@ -232,9 +225,7 @@ STATUS BREAKDOWN:
 - ❌ Overdue: {overdue}
 - 🔄 In Progress: {in_progress}
 - ⏳ Pending/Bid: {pending}
-
 TOP OVERDUE PROPERTIES:{overdue_props if overdue_props else " None currently"}
-
 CREWS ACTIVE: {data['CREW NAME'].nunique() if 'CREW NAME' in data.columns else 0}
         """
         return context
@@ -808,6 +799,7 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
 # ----------------------------------------------------------------------
 # Database Setup for Historical Data
 # ----------------------------------------------------------------------
@@ -897,8 +889,8 @@ def save_to_history(df_updates):
         if existing:
             # Update existing
             cursor.execute('''
-                UPDATE historical_properties 
-                SET status = ?, category = ?, crew_name = ?, due_date = ?, 
+                UPDATE historical_properties
+                SET status = ?, category = ?, crew_name = ?, due_date = ?,
                     reason = ?, details = ?
                 WHERE id = ?
             ''', (
@@ -913,7 +905,7 @@ def save_to_history(df_updates):
         else:
             # Insert new
             cursor.execute('''
-                INSERT INTO historical_properties 
+                INSERT INTO historical_properties
                 (property_name, wo_number, address, crew_name, due_date, status, category, reason, details)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
@@ -952,7 +944,7 @@ def save_daily_snapshot(df_updates):
     active_crews = df_updates["CREW NAME"].dropna().nunique() if "CREW NAME" in df_updates.columns else 0
     
     cursor.execute('''
-        INSERT INTO daily_snapshots 
+        INSERT INTO daily_snapshots
         (snapshot_date, total_properties, completed, overdue, in_progress, pending, active_crews)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ''', (today, total, completed, overdue, in_progress, pending, active_crews))
@@ -964,7 +956,7 @@ def get_historical_data(days=30):
     """Get historical data for trend analysis."""
     conn = sqlite3.connect(DB_PATH)
     query = f"""
-        SELECT * FROM daily_snapshots 
+        SELECT * FROM daily_snapshots
         WHERE snapshot_date >= date('now', '-{days} days')
         ORDER BY snapshot_date ASC
     """
@@ -1384,10 +1376,10 @@ def parse_date_american_first(x):
     
     # American formats FIRST (MM/DD/YYYY or MM-DD-YYYY)
     american_formats = [
-        "%m/%d/%Y",  # 02/12/2026 -> Feb 12, 2026
-        "%m-%d-%Y",  # 02-12-2026 -> Feb 12, 2026
-        "%m/%d/%y",  # 02/12/26 -> Feb 12, 2026
-        "%m-%d-%y",  # 02-12-26 -> Feb 12, 2026
+        "%m/%d/%Y", # 02/12/2026 -> Feb 12, 2026
+        "%m-%d-%Y", # 02-12-2026 -> Feb 12, 2026
+        "%m/%d/%y", # 02/12/26 -> Feb 12, 2026
+        "%m-%d-%y", # 02-12-26 -> Feb 12, 2026
     ]
     
     # Try American formats first
@@ -1399,9 +1391,9 @@ def parse_date_american_first(x):
     
     # Then try international formats
     intl_formats = [
-        "%d/%m/%Y",  # 12/02/2026 -> Feb 12, 2026 (intl)
-        "%d-%m-%Y",  # 12-02-2026 -> Feb 12, 2026 (intl)
-        "%Y-%m-%d",  # 2026-02-12
+        "%d/%m/%Y", # 12/02/2026 -> Feb 12, 2026 (intl)
+        "%d-%m-%Y", # 12-02-2026 -> Feb 12, 2026 (intl)
+        "%Y-%m-%d", # 2026-02-12
         "%d/%m/%y",
         "%d-%m-%y",
         "%Y/%m/%d",
@@ -1434,8 +1426,8 @@ def categorize_status(row):
     
     # In Progress status
     progress_keywords = [
-        "ongoing", "progress", "will be", "try to", "today", "tomorrow", 
-        "friday", "monday", "tuesday", "wednesday", "thursday", "saturday", 
+        "ongoing", "progress", "will be", "try to", "today", "tomorrow",
+        "friday", "monday", "tuesday", "wednesday", "thursday", "saturday",
         "sunday", "working", "scheduled", "assigned", "in progress", "started",
         "crew on site", "crew assigned", "in route", "en route"
     ]
@@ -1444,7 +1436,7 @@ def categorize_status(row):
     
     # Pending status
     pending_keywords = [
-        "waiting", "pending", "bid", "pricing", "activation", "quote", 
+        "waiting", "pending", "bid", "pricing", "activation", "quote",
         "estimate", "review", "approval needed", "client approval",
         "need bid", "bid requested", "awaiting"
     ]
@@ -1541,13 +1533,13 @@ with st.sidebar:
     # Quick Filters
     st.markdown("<p style='color: rgba(255,255,255,0.8); font-weight: 600; font-size: 14px;'>🔍 Quick Filters</p>", unsafe_allow_html=True)
     filter_options = ["All", "Overdue", "In Progress", "Pending", "Completed"]
-    selected_filter = st.selectbox("Status", filter_options, 
+    selected_filter = st.selectbox("Status", filter_options,
                                    index=filter_options.index(st.session_state.filter_status),
                                    label_visibility="collapsed")
     st.session_state.filter_status = selected_filter
     
     # Search
-    search = st.text_input("🔎 Search", st.session_state.search_query, 
+    search = st.text_input("🔎 Search", st.session_state.search_query,
                           placeholder="Property, crew, address...",
                           label_visibility="collapsed")
     st.session_state.search_query = search
@@ -1556,7 +1548,7 @@ with st.sidebar:
     
     # Live indicator
     st.markdown("""
-    <div style="background: linear-gradient(135deg, rgba(46, 204, 113, 0.2) 0%, rgba(39, 174, 96, 0.1) 100%); 
+    <div style="background: linear-gradient(135deg, rgba(46, 204, 113, 0.2) 0%, rgba(39, 174, 96, 0.1) 100%);
                 padding: 12px; border-radius: 10px; text-align: center;
                 border: 1px solid rgba(46, 204, 113, 0.3);">
         <span style="color: #2ecc71; font-weight: 700; font-size: 14px;">● LIVE</span>
@@ -1577,7 +1569,6 @@ with st.spinner("🔄 Loading live data from Google Sheets..."):
         st.error(f"❌ Failed to load property data: {e}")
         df_properties = pd.DataFrame(columns=["W/O Number", "address", "latitude", "longitude", "status", "vendor"])
         data_loaded = False
-
     try:
         df_updates = load_updates()
         updates_loaded = True
@@ -1756,7 +1747,7 @@ if st.session_state.active_tab == "Dashboard":
                 x=week_df["Day"],
                 y=week_df["Workload Score"],
                 name="Workload Intensity",
-                marker_color=["rgba(102, 126, 234, 0.3)" if not is_today else "rgba(102, 126, 234, 0.5)" 
+                marker_color=["rgba(102, 126, 234, 0.3)" if not is_today else "rgba(102, 126, 234, 0.5)"
                              for is_today in week_df["Is Today"]],
                 width=0.8,
                 showlegend=False
@@ -2051,10 +2042,10 @@ elif st.session_state.active_tab == "Add New":
     st.markdown("<h2 style='margin-bottom: 20px;'>➕ Add New Property / Update</h2>", unsafe_allow_html=True)
     
     st.markdown("""
-    <div style="background: rgba(102, 126, 234, 0.1); border: 1px solid rgba(102, 126, 234, 0.3); 
+    <div style="background: rgba(102, 126, 234, 0.1); border: 1px solid rgba(102, 126, 234, 0.3);
                 border-radius: 12px; padding: 20px; margin-bottom: 25px;">
         <p style="margin: 0; color: #aaa; font-size: 14px;">
-            💡 <b>Tip:</b> Use this form to add new properties or update existing ones. 
+            💡 <b>Tip:</b> Use this form to add new properties or update existing ones.
             Changes will be saved to the local database and can be synced to Google Sheets later.
         </p>
     </div>
@@ -2114,7 +2105,7 @@ elif st.session_state.active_tab == "Add New":
                     
                     # Show confirmation
                     st.markdown(f"""
-                    <div style="background: rgba(39, 174, 96, 0.1); border: 1px solid rgba(39, 174, 96, 0.3); 
+                    <div style="background: rgba(39, 174, 96, 0.1); border: 1px solid rgba(39, 174, 96, 0.3);
                                 border-radius: 10px; padding: 15px; margin-top: 15px;">
                         <h4 style="margin: 0 0 10px 0; color: #51cf66;">✅ Property Added</h4>
                         <p style="margin: 0; color: #aaa; font-size: 13px;">
@@ -2125,7 +2116,7 @@ elif st.session_state.active_tab == "Add New":
                         </p>
                     </div>
                     """, unsafe_allow_html=True)
-    
+
     with tab2:
         st.markdown("<h4 style='margin-bottom: 20px;'>Quick Status Update</h4>", unsafe_allow_html=True)
         
@@ -2363,8 +2354,8 @@ elif st.session_state.active_tab == "Calendar":
                 border_color = "#f39c12" if is_today else "#3498db"
                 
                 st.markdown(f"""
-                <div style="background: {'rgba(243, 156, 18, 0.1)' if is_today else 'rgba(255,255,255,0.03)'}; 
-                            padding: 15px 20px; border-radius: 12px; margin: 15px 0; 
+                <div style="background: {'rgba(243, 156, 18, 0.1)' if is_today else 'rgba(255,255,255,0.03)'};
+                            padding: 15px 20px; border-radius: 12px; margin: 15px 0;
                             border-left: 4px solid {border_color};">
                     <h4 style="margin: 0; font-size: 16px;">{date_label} ({len(day_props)} properties)</h4>
                 </div>
@@ -2505,12 +2496,12 @@ elif st.session_state.active_tab == "Map View":
     # Legend
     legend_html = """
     <div style="
-        position: fixed; 
-        bottom: 40px; left: 40px; width: 200px; 
-        background: rgba(30, 30, 50, 0.95); 
-        border: 1px solid rgba(255,255,255,0.1); 
-        z-index: 9999; 
-        font-size: 14px; 
+        position: fixed;
+        bottom: 40px; left: 40px; width: 200px;
+        background: rgba(30, 30, 50, 0.95);
+        border: 1px solid rgba(255,255,255,0.1);
+        z-index: 9999;
+        font-size: 14px;
         border-radius: 12px;
         padding: 15px;
         box-shadow: 0 8px 32px rgba(0,0,0,0.3);
@@ -2665,11 +2656,11 @@ elif st.session_state.active_tab == "Reports":
         
         if not hist_data.empty:
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=hist_data["snapshot_date"], y=hist_data["total_properties"], 
+            fig.add_trace(go.Scatter(x=hist_data["snapshot_date"], y=hist_data["total_properties"],
                                      name="Total", mode="lines+markers", line=dict(color="#667eea")))
-            fig.add_trace(go.Scatter(x=hist_data["snapshot_date"], y=hist_data["completed"], 
+            fig.add_trace(go.Scatter(x=hist_data["snapshot_date"], y=hist_data["completed"],
                                      name="Completed", mode="lines+markers", line=dict(color="#27ae60")))
-            fig.add_trace(go.Scatter(x=hist_data["snapshot_date"], y=hist_data["overdue"], 
+            fig.add_trace(go.Scatter(x=hist_data["snapshot_date"], y=hist_data["overdue"],
                                      name="Overdue", mode="lines+markers", line=dict(color="#e74c3c")))
             
             fig.update_layout(
@@ -2692,10 +2683,10 @@ elif st.session_state.active_tab == "History":
     st.markdown("<h2 style='margin-bottom: 20px;'>🕐 Historical Data</h2>", unsafe_allow_html=True)
     
     st.markdown("""
-    <div style="background: rgba(102, 126, 234, 0.1); border: 1px solid rgba(102, 126, 234, 0.3); 
+    <div style="background: rgba(102, 126, 234, 0.1); border: 1px solid rgba(102, 126, 234, 0.3);
                 border-radius: 12px; padding: 20px; margin-bottom: 25px;">
         <p style="margin: 0; color: #aaa; font-size: 14px;">
-            📊 <b>Historical Tracking:</b> This dashboard automatically saves daily snapshots and property updates 
+            📊 <b>Historical Tracking:</b> This dashboard automatically saves daily snapshots and property updates
             to a local database. Even if data is deleted from Google Sheets, you'll have a record here.
         </p>
     </div>
@@ -2728,7 +2719,7 @@ elif st.session_state.active_tab == "History":
     with hist_tab2:
         conn = sqlite3.connect(DB_PATH)
         user_updates = pd.read_sql_query(
-            "SELECT * FROM user_updates ORDER BY timestamp DESC LIMIT 50", 
+            "SELECT * FROM user_updates ORDER BY timestamp DESC LIMIT 50",
             conn
         )
         conn.close()
