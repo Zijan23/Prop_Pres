@@ -801,75 +801,78 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ----------------------------------------------------------------------
-# Database Setup for Historical Dataa
+# Database Setup for Historical Data
 # ----------------------------------------------------------------------
+import sqlite3
+
 DB_PATH = "property_preservation.db"
 
 def init_database():
     """Initialize SQLite database for historical data."""
+    
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     # Historical properties table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS historical_properties (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            property_name TEXT,
-            wo_number TEXT,
-            address TEXT,
-            crew_name TEXT,
-            due_date TEXT,
-            status TEXT,
-            category TEXT,
-            reason TEXT,
-            details TEXT,
-            date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            date_completed TIMESTAMP,
-            is_active INTEGER DEFAULT 1
-        )
-    ''')
-    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS historical_properties (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        property_name TEXT,
+        wo_number TEXT,
+        address TEXT,
+        crew_name TEXT,
+        due_date TEXT,
+        status TEXT,
+        category TEXT,
+        reason TEXT,
+        details TEXT,
+        date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        date_completed TIMESTAMP,
+        is_active INTEGER DEFAULT 1
+    )
+    """)
+
     # Crew performance history
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS crew_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            crew_name TEXT,
-            property_name TEXT,
-            action TEXT,
-            status TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS crew_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        crew_name TEXT,
+        property_name TEXT,
+        action TEXT,
+        status TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     # Daily snapshots for trends
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS daily_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            snapshot_date DATE,
-            total_properties INTEGER,
-            completed INTEGER,
-            overdue INTEGER,
-            in_progress INTEGER,
-            pending INTEGER,
-            active_crews INTEGER
-        )
-    ''')
-    
-    # User inputs/updates
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_updates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            property_name TEXT,
-            crew_name TEXT,
-            status TEXT,
-            due_date TEXT,
-            details TEXT,
-            reason TEXT,
-            updated_by TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS daily_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        snapshot_date DATE,
+        total_properties INTEGER,
+        completed INTEGER,
+        overdue INTEGER,
+        in_progress INTEGER,
+        pending INTEGER,
+        active_crews INTEGER
+    )
+    """)
+
+    # User inputs / updates
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_updates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        property_name TEXT,
+        crew_name TEXT,
+        status TEXT,
+        due_date TEXT,
+        details TEXT,
+        reason TEXT,
+        updated_by TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.commit()
     conn.close()
 
