@@ -1530,8 +1530,8 @@ with st.sidebar:
     
     selected = option_menu(
         menu_title=None,
-        options=["Dashboard", "Properties", "Add New", "Crew Analytics", "Calendar", "Map View", "Reports", "History"],
-        icons=["speedometer2", "houses", "plus-circle", "people", "calendar3", "geo-alt", "file-earmark-text", "clock-history"],
+        options=["Dashboard", "Properties", "Add New", "Crew Analytics", "Calendar", "Map View", "Reports", "History", "AI Assistant"],
+        icons=["speedometer2", "houses", "plus-circle", "people", "calendar3", "geo-alt", "file-earmark-text", "clock-history", "robot"],
         menu_icon="cast",
         default_index=0,
         styles={
@@ -2771,6 +2771,361 @@ elif st.session_state.active_tab == "History":
             )
         else:
             st.info("ℹ️ No user updates yet. Updates will appear here when you add or modify properties.")
+
+
+# =============================================================================
+# ----------------------------------------------------------------------
+# AI ASSISTANT VIEW
+# ----------------------------------------------------------------------
+elif st.session_state.active_tab == "AI Assistant":
+    st.markdown("<h2 style=\"margin-bottom: 20px;\">🤖 AI Assistant - Preservation Pal</h2>", unsafe_allow_html=True)
+
+    # Initialize chat history for this view
+    if 'ai_chat_history_full' not in st.session_state:
+        st.session_state.ai_chat_history_full = []
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%); 
+                    padding: 20px; border-radius: 15px; margin-bottom: 20px;
+                    border: 1px solid rgba(102, 126, 234, 0.3);">
+            <h3 style="margin: 0 0 10px 0; color: #fff;">👋 Welcome to Preservation Pal!</h3>
+            <p style="margin: 0; color: #ccc; font-size: 14px;">
+                I'm your AI assistant for property preservation management. I can help you find properties, 
+                check statuses, analyze data, and answer questions about your dashboard.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Chat interface
+        chat_container = st.container()
+        with chat_container:
+            # Display chat history
+            for msg in st.session_state.ai_chat_history_full:
+                if msg['role'] == 'user':
+                    st.markdown(f"**👤 You:** {msg['content']}")
+                else:
+                    st.markdown(f"🤖 **Preservation Pal:** {msg['content']}")
+
+            # Input area
+            with st.form(key="ai_assistant_form", clear_on_submit=True):
+                user_input = st.text_area("💬 Your message:", 
+                                        height=80,
+                                        placeholder="Ask me anything about your properties...")
+
+                col_btn1, col_btn2, col_btn3 = st.columns([2, 2, 1])
+                with col_btn1:
+                    submit = st.form_submit_button("📤 Send", use_container_width=True, type="primary")
+                with col_btn2:
+                    if st.form_submit_button("🗑️ Clear Chat", use_container_width=True):
+                        st.session_state.ai_chat_history_full = []
+                        st.rerun()
+                with col_btn3:
+                    if st.form_submit_button("🔄 Refresh Data", use_container_width=True):
+                        st.cache_data.clear()
+                        st.rerun()
+
+                if submit and user_input.strip():
+                    # Add user message
+                    st.session_state.ai_chat_history_full.append({"role": "user", "content": user_input})
+
+                    # Get response
+                    response = None
+                    try:
+                        ai_agent = get_ai_agent()
+                        api_key = ai_agent.config.get('groq_api_key', '')
+                        if api_key and 'your_free_groq_key' not in api_key and 'your' not in api_key.lower():
+                            with st.spinner("🤖 Thinking..."):
+                                response = ai_agent.query(user_input, context_data=df_updates if 'df_updates' in locals() else None)
+                    except Exception as e:
+                        pass
+
+                    if response is None:
+                        response = get_simple_ai_response(user_input, df_updates if 'df_updates' in locals() else None)
+
+                    st.session_state.ai_chat_history_full.append({"role": "assistant", "content": response})
+
+                    # Keep last 50 messages
+                    if len(st.session_state.ai_chat_history_full) > 50:
+                        st.session_state.ai_chat_history_full = st.session_state.ai_chat_history_full[-50:]
+
+                    st.rerun()
+
+    with col2:
+        st.markdown("### 💡 Quick Commands")
+
+        quick_commands = [
+            ("📊 Show summary", "Give me a summary of all properties"),
+            ("⚠️ Overdue", "Show overdue properties"),
+            ("✅ Completed", "How many completed properties?"),
+            ("🔄 In Progress", "What is in progress?"),
+            ("⏳ Pending", "Show pending properties"),
+            ("👷 Crews", "What crews are active?"),
+            ("📅 Due soon", "What is due soon?"),
+        ]
+
+        for label, command in quick_commands:
+            if st.button(label, use_container_width=True, key=f"quick_{label}"):
+                st.session_state.ai_chat_history_full.append({"role": "user", "content": command})
+                response = get_simple_ai_response(command, df_updates if 'df_updates' in locals() else None)
+                st.session_state.ai_chat_history_full.append({"role": "assistant", "content": response})
+                st.rerun()
+
+        st.markdown("---")
+
+        st.markdown("### 📈 Current Stats")
+        if df_updates is not None and not df_updates.empty:
+            total = len(df_updates)
+            if 'Category' in df_updates.columns:
+                completed = (df_updates['Category'] == '✅ Completed').sum()
+                overdue = (df_updates['Category'] == '❌ Overdue').sum()
+                in_progress = (df_updates['Category'] == '🔄 In Progress').sum()
+                pending = (df_updates['Category'] == '⏳ Pending / Bid').sum()
+
+                st.metric("Total Properties", total)
+                st.metric("✅ Completed", completed)
+                st.metric("❌ Overdue", overdue)
+                st.metric("🔄 In Progress", in_progress)
+                st.metric("⏳ Pending", pending)
+
+        st.markdown("---")
+
+        st.info("""
+        **💡 Tip:** You can also access me from any page using the 🤖 button 
+        in the bottom right corner!
+        """)
+
+# ----------------------------------------------------------------------
+# AI CHAT ASSISTANT WIDGET
+# =============================================================================
+
+# Initialize chat session state
+if 'ai_chat_open' not in st.session_state:
+    st.session_state.ai_chat_open = False
+if 'ai_chat_history' not in st.session_state:
+    st.session_state.ai_chat_history = []
+if 'ai_chat_input' not in st.session_state:
+    st.session_state.ai_chat_input = ""
+
+# Simple rule-based fallback responses (works without API)
+def get_simple_ai_response(user_message, df_updates):
+    """Simple rule-based AI response that works without API keys."""
+    message = user_message.lower()
+
+    # Greetings
+    if any(word in message for word in ['hello', 'hi', 'hey', 'greetings']):
+        return "👋 Hello! I'm your Property Preservation Assistant. I can help you find properties, check statuses, and answer questions about your dashboard. What would you like to know?"
+
+    # Help
+    if any(word in message for word in ['help', 'what can you do', 'capabilities']):
+        return """🤖 Here's what I can help you with:
+
+🔍 **Find Properties** - Search by name, address, crew, or status
+📊 **Check Status** - See counts of overdue, in-progress, completed properties
+⏰ **Due Dates** - Find properties due soon or already overdue
+👷 **Crew Info** - See which crews are assigned to which properties
+📈 **Insights** - Get quick analysis of your data
+
+Just ask me anything like "Show overdue properties" or "How many completed?"""
+
+    # Overdue properties
+    if any(word in message for word in ['overdue', 'late', 'behind']):
+        if df_updates is not None and not df_updates.empty and 'Category' in df_updates.columns:
+            overdue = df_updates[df_updates['Category'] == '❌ Overdue']
+            count = len(overdue)
+            if count > 0:
+                props = overdue.head(3)['Property'].tolist() if 'Property' in overdue.columns else []
+                prop_list = ', '.join(props) if props else 'N/A'
+                return f"⚠️ You have **{count} overdue properties**!\n\nTop overdue:\n{prop_list}\n\nPlease prioritize these!"
+            else:
+                return "✅ Great news! No overdue properties right now."
+        return "I don't have property data loaded yet. Please wait for the data to load."
+
+    # Completed properties
+    if any(word in message for word in ['completed', 'done', 'finished']):
+        if df_updates is not None and not df_updates.empty and 'Category' in df_updates.columns:
+            completed = df_updates[df_updates['Category'] == '✅ Completed']
+            count = len(completed)
+            return f"✅ You have **{count} completed properties**. Great work!"
+        return "I don't have property data loaded yet."
+
+    # In progress
+    if any(word in message for word in ['in progress', 'working', 'active']):
+        if df_updates is not None and not df_updates.empty and 'Category' in df_updates.columns:
+            in_progress = df_updates[df_updates['Category'] == '🔄 In Progress']
+            count = len(in_progress)
+            return f"🔄 You have **{count} properties in progress**."
+        return "I don't have property data loaded yet."
+
+    # Pending
+    if any(word in message for word in ['pending', 'bid', 'waiting']):
+        if df_updates is not None and not df_updates.empty and 'Category' in df_updates.columns:
+            pending = df_updates[df_updates['Category'] == '⏳ Pending / Bid']
+            count = len(pending)
+            return f"⏳ You have **{count} properties pending/bid**."
+        return "I don't have property data loaded yet."
+
+    # Total count
+    if any(word in message for word in ['total', 'how many', 'count', 'all properties']):
+        if df_updates is not None and not df_updates.empty:
+            total = len(df_updates)
+            if 'Category' in df_updates.columns:
+                completed = (df_updates['Category'] == '✅ Completed').sum()
+                overdue = (df_updates['Category'] == '❌ Overdue').sum()
+                in_progress = (df_updates['Category'] == '🔄 In Progress').sum()
+                pending = (df_updates['Category'] == '⏳ Pending / Bid').sum()
+                return f"📊 **Property Summary:**\n\n• Total: {total}\n• ✅ Completed: {completed}\n• ❌ Overdue: {overdue}\n• 🔄 In Progress: {in_progress}\n• ⏳ Pending/Bid: {pending}"
+            return f"📊 You have **{total} properties** in total."
+        return "I don't have property data loaded yet."
+
+    # Crew info
+    if any(word in message for word in ['crew', 'team', 'vendors']):
+        if df_updates is not None and not df_updates.empty and 'CREW NAME' in df_updates.columns:
+            crews = df_updates['CREW NAME'].dropna().unique()
+            crew_count = len(crews)
+            crew_list = ', '.join(crews[:5]) if crew_count > 0 else 'N/A'
+            return f"👷 **Active Crews: {crew_count}**\n\nCrews: {crew_list}{'...' if crew_count > 5 else ''}"
+        return "I don't have crew data loaded yet."
+
+    # Search for specific property
+    if any(word in message for word in ['find', 'search', 'look for', 'where is']):
+        if df_updates is not None and not df_updates.empty and 'Property' in df_updates.columns:
+            # Try to extract property name from message
+            for _, row in df_updates.iterrows():
+                prop_name = str(row.get('Property', '')).lower()
+                if prop_name and any(part in message for part in prop_name.split() if len(part) > 3):
+                    status = row.get('Status 1', row.get('Category', 'Unknown'))
+                    crew = row.get('CREW NAME', 'Not assigned')
+                    due = row.get('Due date', 'No due date')
+                    return f"🏠 **{row.get('Property', 'Property')}**\n\n📊 Status: {status}\n👷 Crew: {crew}\n📅 Due: {due}"
+        return "I couldn't find a specific property. Try using the search box in the sidebar!"
+
+    # Due soon
+    if any(word in message for word in ['due soon', 'upcoming', 'this week']):
+        if df_updates is not None and not df_updates.empty and 'Days Until Due' in df_updates.columns:
+            due_soon = df_updates[(df_updates['Days Until Due'] >= 0) & (df_updates['Days Until Due'] <= 7)]
+            count = len(due_soon)
+            if count > 0:
+                return f"⏰ **{count} properties due within 7 days!** Stay on top of these deadlines."
+            return "✅ No properties due within the next 7 days."
+        return "I need the data to load first to check due dates."
+
+    # Default response
+    return """🤔 I'm not sure I understood that. Try asking me:
+
+• "Show overdue properties"
+• "How many completed?"
+• "What crews are active?"
+• "Give me a summary"
+• "Help" for more options
+
+Or use the search box in the sidebar to find specific properties!"""
+
+# AI Chat Widget UI - Floating Button
+st.markdown("""
+<style>
+    div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stHorizontalBlock"]):last-child {
+        position: fixed !important;
+        bottom: 30px !important;
+        right: 30px !important;
+        z-index: 9999 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Create columns for the floating button
+float_col = st.columns([10, 1])
+with float_col[1]:
+    if st.button("🤖", key="ai_chat_toggle_btn", help="💬 Click to chat with AI Assistant", 
+                 type="primary", use_container_width=True):
+        st.session_state.ai_chat_open = not st.session_state.ai_chat_open
+        st.rerun()
+
+# Chat Window
+if st.session_state.ai_chat_open:
+    st.markdown("---")
+    st.markdown("### 🤖 Preservation Pal - AI Assistant")
+
+    # Chat container with custom styling
+    chat_container = st.container()
+    with chat_container:
+        # Welcome message if no history
+        if not st.session_state.ai_chat_history:
+            st.info("""👋 **Hi! I'm Preservation Pal, your AI assistant!**
+
+I can help you with:
+• 🔍 Finding properties by name, crew, or status
+• 📊 Checking counts (overdue, completed, in-progress)
+• 👷 Viewing crew assignments
+• 📈 Getting data insights
+
+**Try asking:**
+- "Show overdue properties"
+- "How many completed?"
+- "Give me a summary"
+- "What crews are active?"
+            """)
+
+        # Display chat history
+        for msg in st.session_state.ai_chat_history:
+            if msg['role'] == 'user':
+                st.markdown(f"**You:** {msg['content']}")
+            else:
+                st.markdown(f"🤖 **Preservation Pal:** {msg['content']}")
+
+        # Chat Input Form
+        with st.form(key="ai_chat_form", clear_on_submit=True):
+            user_input = st.text_input("💬 Type your message...", 
+                                      key="chat_input_field", 
+                                      label_visibility="collapsed",
+                                      placeholder="Ask about properties, crews, statuses...")
+
+            col1, col2, col3 = st.columns([3, 3, 2])
+            with col1:
+                submit = st.form_submit_button("📤 Send Message", use_container_width=True, type="primary")
+            with col2:
+                if st.form_submit_button("🗑️ Clear Chat", use_container_width=True):
+                    st.session_state.ai_chat_history = []
+                    st.rerun()
+            with col3:
+                if st.form_submit_button("❌ Close", use_container_width=True):
+                    st.session_state.ai_chat_open = False
+                    st.rerun()
+
+            if submit and user_input.strip():
+                # Add user message to history
+                st.session_state.ai_chat_history.append({"role": "user", "content": user_input})
+
+                # Get AI response (try API first, fallback to rule-based)
+                response = None
+                try:
+                    # Try to use the AI agent if API key is configured properly
+                    ai_agent = get_ai_agent()
+                    api_key = ai_agent.config.get('groq_api_key', '')
+                    if api_key and 'your_free_groq_key' not in api_key and 'your' not in api_key.lower():
+                        with st.spinner("🤖 Thinking..."):
+                            response = ai_agent.query(user_input, context_data=df_updates if 'df_updates' in locals() else None)
+                except Exception as e:
+                    pass  # Will use fallback
+
+                # Use rule-based fallback if API failed or not configured
+                if response is None:
+                    response = get_simple_ai_response(user_input, df_updates if 'df_updates' in locals() else None)
+
+                # Add assistant response to history
+                st.session_state.ai_chat_history.append({"role": "assistant", "content": response})
+
+                # Keep only last 20 messages
+                if len(st.session_state.ai_chat_history) > 20:
+                    st.session_state.ai_chat_history = st.session_state.ai_chat_history[-20:]
+
+                st.rerun()
+
+    st.markdown("---")
+
+# =============================================================================
 
 # ----------------------------------------------------------------------
 # Footer
