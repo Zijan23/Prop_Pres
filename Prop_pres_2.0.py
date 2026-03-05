@@ -1,4 +1,4 @@
-enhanced_code = '''# app.py - Property Preservation Pro Dashboard with AI Agent
+enhanced_code =  # app.py - Property Preservation Pro Dashboard with AI Agent
 # -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
