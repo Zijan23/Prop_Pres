@@ -1,47 +1,27 @@
-# Property Preservation Dashboard Requirements
-# Generated: March 5, 2026
+# Property Preservation Pro Dashboard - Requirements
+# Compatible with Python 3.13+
 
-# Core dependencies - with compatible versions
-streamlit==1.40.0
-pandas>=2.0.0,<2.2.0
-numpy>=1.24.0,<1.26.0
-plotly>=5.14.0,<5.24.0
+# Core dependencies
+streamlit>=1.40.0,<1.42.0
+pandas>=2.2.0
+numpy>=1.26.0
+plotly>=5.14.0
+requests>=2.31.0
 
-# Rich - pin to version compatible with streamlit 1.40.0
-rich==13.9.4
-
-# Mapping and geospatial
-folium>=0.14.0,<0.17.0
-streamlit-folium>=0.15.0,<0.24.0
-geopandas>=0.14.0,<1.0.0
-shapely>=2.0.0,<2.1.0
-
-# Database
-# sqlite3 is built-in
+# Geospatial dependencies
+folium>=0.14.0
+streamlit-folium>=0.15.0
+geopandas>=0.14.0
+shapely>=2.0.0
 
 # UI components
-streamlit-option-menu>=0.3.6,<0.4.0
+streamlit-option-menu>=0.3.6
 
-# HTTP requests for AI agent
-requests>=2.31.0,<3.0.0
+# Google Sheets API
+gspread>=5.12.0
+google-auth>=2.22.0
+google-auth-oauthlib>=1.0.0
+google-auth-httplib2>=0.1.1
 
-# Date handling
-python-dateutil>=2.8.2,<3.0.0
-pytz>=2023.3,<2024.0
-
-# Additional utilities
-jinja2>=3.1.0,<3.2.0
-markdown>=3.4.0,<3.6.0
-pillow>=10.0.0,<11.0.0
-protobuf>=3.20.0,<4.0.0
-
-# Optional: For better CSV handling
-openpyxl>=3.1.0,<3.2.0
-xlrd>=2.0.0,<3.0.0
-
-# Markdown handling for AI responses
-markdown-it-py>=3.0.0,<4.0.0
-mdurl>=0.1.0,<0.2.0
-
-# Pygments for syntax highlighting
-pygments>=2.18.0,<3.0.0
+# Note: sqlite3 is included in Python standard library
+# Do NOT install sqlite3-advanced - it doesn't exist
