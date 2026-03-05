@@ -1,5 +1,6 @@
-enhanced_code =  # app.py - Property Preservation Pro Dashboard with AI Agent
+# app.py - Billion-Dollar Property Preservation Pro Dashboard
 # -*- coding: utf-8 -*-
+
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
@@ -18,861 +19,87 @@ import sqlite3
 import json
 from pathlib import Path
 import time
-import requests
-import re
 
-# =============================================================================
-# AI AGENT CONFIGURATION - FREE TIER OPTIONS
-# =============================================================================
-# Option 1: Groq (Recommended - $5 free credit, no CC required)
-# Get key at: https://console.groq.com/keys
-# Default key below is placeholder - replace with your actual key
-# Option 2: OpenRouter (Free tier available)
-# Get key at: https://openrouter.ai/keys
-# Option 3: Google AI Studio (Gemini - completely free)
-# Get key at: https://aistudio.google.com/app/apikey
-AI_CONFIG = {
-    "provider": "groq", # Change to "openrouter" or "gemini" as needed
-    "groq_api_key": os.getenv("GROQ_API_KEY", "gsk_your_free_groq_key_here"),
-    "openrouter_api_key": os.getenv("OPENROUTER_API_KEY", "sk-or-v1-your-openrouter-key"),
-    "gemini_api_key": os.getenv("GEMINI_API_KEY", "your-gemini-key"),
-    "model": "llama-3.1-8b-instant", # Fast and capable (Groq)
-    # "model": "google/gemma-2-9b-it", # Alternative for OpenRouter
-    "temperature": 0.7,
-    "max_tokens": 1024
-}
-
-# =============================================================================
-# AI AGENT CLASS
-# =============================================================================
-class PropertyAIAgent:
-    """AI Agent for Property Preservation Dashboard"""
-    
-    def __init__(self, config):
-        self.config = config
-        self.provider = config.get("provider", "groq")
-        self.conversation_history = []
-        self.system_prompt = self._create_system_prompt()
-        
-    def _create_system_prompt(self):
-        return """You are "Preservation Pal" 🤖🏠, an AI assistant for a Property Preservation Dashboard.
-        
-Your personality is friendly, helpful, and slightly playful - you love helping property managers stay organized!
-CAPABILITIES:
-1. 🔍 FIND PROPERTIES - Search through property database by name, address, crew, or status
-2. 📊 CHECK STATUS - Report on property statuses (Overdue, In Progress, Completed, Pending)
-3. 💡 GENERATE INSIGHTS - Analyze data and provide actionable recommendations
-4. ⏰ SET REMINDERS - Help track due dates and flag urgent items
-5. ❓ ANSWER QUESTIONS - Explain the dashboard, data, or property management concepts
-RULES:
-- Always respond in a warm, professional tone with occasional relevant emojis
-- When asked about properties, reference the actual data provided in context
-- If you don't have access to live data, explain what you can do instead
-- For overdue properties, show urgency but remain solution-oriented
-- Keep responses concise but informative (2-4 paragraphs max)
-- If asked to perform actions beyond your capabilities (like modifying data), explain that you can guide the user on how to do it manually
-CURRENT CONTEXT:
-You are analyzing a property preservation database with work orders, crew assignments, due dates, and status tracking. The dashboard integrates with Google Sheets for live data."""
-
-    def query(self, user_message, context_data=None):
-        """Send query to AI provider and return response"""
-        
-        # Build messages
-        messages = [{"role": "system", "content": self.system_prompt}]
-        
-        # Add context if provided (property data summary)
-        if context_data:
-            context_msg = self._format_context(context_data)
-            messages.append({"role": "system", "content": f"CURRENT DATA CONTEXT:\\n{context_msg}"})
-        
-        # Add conversation history (last 5 exchanges)
-        for exchange in self.conversation_history[-5:]:
-            messages.append(exchange)
-        
-        # Add current user message
-        messages.append({"role": "user", "content": user_message})
-        
-        try:
-            if self.provider == "groq":
-                response = self._query_groq(messages)
-            elif self.provider == "openrouter":
-                response = self._query_openrouter(messages)
-            elif self.provider == "gemini":
-                response = self._query_gemini(messages)
-            else:
-                response = "⚠️ AI provider not configured. Please check settings."
-                
-            # Store in history
-            self.conversation_history.append({"role": "user", "content": user_message})
-            self.conversation_history.append({"role": "assistant", "content": response})
-            
-            return response
-            
-        except Exception as e:
-            return f"😅 Oops! I had a little hiccup: {str(e)}\\n\\nPlease check your API key or try again in a moment!"
-
-    def _query_groq(self, messages):
-        """Query Groq API (Free tier: $5 credit, fast inference)"""
-        headers = {
-            "Authorization": f"Bearer {self.config['groq_api_key']}",
-            "Content-Type": "application/json"
-        }
-        
-        data = {
-            "model": self.config["model"],
-            "messages": messages,
-            "temperature": self.config["temperature"],
-            "max_tokens": self.config["max_tokens"]
-        }
-        
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers,
-            json=data,
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"]
-        else:
-            error_msg = response.json().get("error", {}).get("message", "Unknown error")
-            if "invalid api key" in error_msg.lower():
-                return "🔑 Hmm, my brain key seems to be invalid! Please check your GROQ_API_KEY configuration."
-            raise Exception(f"API Error: {error_msg}")
-
-    def _query_openrouter(self, messages):
-        """Query OpenRouter API (Free tier available)"""
-        headers = {
-            "Authorization": f"Bearer {self.config['openrouter_api_key']}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://cppprop.streamlit.app/",
-            "X-Title": "Property Preservation Dashboard"
-        }
-        
-        data = {
-            "model": "google/gemma-2-9b-it", # Free tier model
-            "messages": messages,
-            "temperature": self.config["temperature"],
-            "max_tokens": self.config["max_tokens"]
-        }
-        
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=data,
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"]
-        else:
-            raise Exception(f"OpenRouter Error: {response.text}")
-
-    def _query_gemini(self, messages):
-        """Query Google Gemini API (Completely free tier)"""
-        # Convert messages to Gemini format
-        gemini_messages = []
-        for msg in messages:
-            if msg["role"] == "user":
-                gemini_messages.append({"role": "user", "parts": [{"text": msg["content"]}]})
-            elif msg["role"] == "model" or msg["role"] == "assistant":
-                gemini_messages.append({"role": "model", "parts": [{"text": msg["content"]}]})
-        
-        data = {
-            "contents": gemini_messages,
-            "generationConfig": {
-                "temperature": self.config["temperature"],
-                "maxOutputTokens": self.config["max_tokens"]
-            }
-        }
-        
-        response = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={self.config['gemini_api_key']}",
-            json=data,
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
-            if "candidates" in result and len(result["candidates"]) > 0:
-                return result["candidates"][0]["content"]["parts"][0]["text"]
-            return "🤔 I couldn't generate a response. Try rephrasing your question!"
-        else:
-            raise Exception(f"Gemini Error: {response.text}")
-
-    def _format_context(self, data):
-        """Format property data for AI context"""
-        if data is None or data.empty:
-            return "No property data currently loaded."
-        
-        total = len(data)
-        completed = (data["Category"] == "✅ Completed").sum() if "Category" in data.columns else 0
-        overdue = (data["Category"] == "❌ Overdue").sum() if "Category" in data.columns else 0
-        in_progress = (data["Category"] == "🔄 In Progress").sum() if "Category" in data.columns else 0
-        pending = (data["Category"] == "⏳ Pending / Bid").sum() if "Category" in data.columns else 0
-        
-        # Get top overdue properties
-        overdue_props = ""
-        if "Category" in data.columns and overdue > 0:
-            od = data[data["Category"] == "❌ Overdue"].head(3)
-            for _, row in od.iterrows():
-                overdue_props += f"\\n- {row.get('Property', 'Unknown')} (Due: {row.get('Due date', 'N/A')})"
-        
-        context = f"""
-TOTAL PROPERTIES: {total}
-STATUS BREAKDOWN:
-- ✅ Completed: {completed}
-- ❌ Overdue: {overdue}
-- 🔄 In Progress: {in_progress}
-- ⏳ Pending/Bid: {pending}
-TOP OVERDUE PROPERTIES:{overdue_props if overdue_props else " None currently"}
-CREWS ACTIVE: {data['CREW NAME'].nunique() if 'CREW NAME' in data.columns else 0}
-        """
-        return context
-
-# Initialize AI Agent
-@st.cache_resource
-def get_ai_agent():
-    return PropertyAIAgent(AI_CONFIG)
-
-# =============================================================================
-# PAGE CONFIGURATION
-# =============================================================================
+# ----------------------------------------------------------------------
+# Page Configuration - MUST BE FIRST STREAMLIT COMMAND
+# ----------------------------------------------------------------------
 st.set_page_config(
-    page_title="CPP Pro | Property Preservation AI Dashboard",
+    page_title="CPP Pro | Property Preservation Dashboard",
     page_icon="🏠",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# =============================================================================
-# CUSTOM CSS - INCLUDING AI ASSISTANT STYLING
-# =============================================================================
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-    
-    * {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
-    }
-    
-    /* Main container */
-    .main {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-        color: #ffffff;
-    }
-    
-    /* Sidebar styling */
-    .css-1d391kg, [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0f0f23 0%, #1a1a3e 100%) !important;
-    }
-    
-    /* Typography */
-    h1, h2, h3, h4, h5, h6 {
-        font-weight: 700 !important;
-        color: #ffffff !important;
-        letter-spacing: -0.02em !important;
-    }
-    
-    p, span, div {
-        color: #e0e0e0 !important;
-        font-weight: 400 !important;
-    }
-    
-    /* KPI Cards */
-    .kpi-container {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 16px;
-        padding: 24px;
-        color: white;
-        box-shadow: 0 10px 40px rgba(102, 126, 234, 0.3);
-        transition: all 0.3s ease;
-        cursor: pointer;
-        border: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    .kpi-container:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 15px 50px rgba(102, 126, 234, 0.4);
-    }
-    
-    .kpi-value {
-        font-size: 2.5em;
-        font-weight: 800;
-        margin: 0;
-        text-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    }
-    
-    .kpi-label {
-        font-size: 0.9em;
-        opacity: 0.9;
-        margin-top: 8px;
-        font-weight: 500;
-    }
-    
-    .kpi-completed {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-    }
-    
-    .kpi-overdue {
-        background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
-        animation: pulse-red 2s infinite;
-    }
-    
-    .kpi-progress {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    }
-    
-    .kpi-pending {
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-    }
-    
-    @keyframes pulse-red {
-        0%, 100% { box-shadow: 0 10px 40px rgba(235, 51, 73, 0.4); }
-        50% { box-shadow: 0 10px 60px rgba(235, 51, 73, 0.6); }
-    }
-    
-    /* Property Cards */
-    .property-card {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(10px);
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 12px;
-        border-left: 4px solid;
-        transition: all 0.3s ease;
-        border: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    .property-card:hover {
-        background: rgba(255, 255, 255, 0.1);
-        transform: translateX(8px);
-    }
-    
-    .property-card.overdue { border-left-color: #e74c3c; }
-    .property-card.completed { border-left-color: #27ae60; }
-    .property-card.in-progress { border-left-color: #f39c12; }
-    .property-card.pending { border-left-color: #3498db; }
-    
-    /* Status Badges */
-    .status-badge {
-        display: inline-block;
-        padding: 6px 14px;
-        border-radius: 20px;
-        font-size: 11px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    
-    .status-badge.overdue {
-        background: rgba(231, 76, 60, 0.2);
-        color: #ff6b6b;
-        border: 1px solid rgba(231, 76, 60, 0.3);
-    }
-    
-    .status-badge.completed {
-        background: rgba(39, 174, 96, 0.2);
-        color: #51cf66;
-        border: 1px solid rgba(39, 174, 96, 0.3);
-    }
-    
-    .status-badge.in-progress {
-        background: rgba(243, 156, 18, 0.2);
-        color: #ffd43b;
-        border: 1px solid rgba(243, 156, 18, 0.3);
-    }
-    
-    .status-badge.pending {
-        background: rgba(52, 152, 219, 0.2);
-        color: #74c0fc;
-        border: 1px solid rgba(52, 152, 219, 0.3);
-    }
-    
-    /* Insight Cards */
-    .insight-box {
-        background: rgba(102, 126, 234, 0.1);
-        border: 1px solid rgba(102, 126, 234, 0.3);
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 12px;
-        cursor: pointer;
-        transition: all 0.3s ease;
-    }
-    
-    .insight-box:hover {
-        background: rgba(102, 126, 234, 0.2);
-        transform: scale(1.02);
-    }
-    
-    /* Dashboard Header */
-    .dashboard-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 40px;
-        border-radius: 20px;
-        margin-bottom: 30px;
-        text-align: center;
-        box-shadow: 0 20px 60px rgba(102, 126, 234, 0.3);
-    }
-    
-    .dashboard-header h1 {
-        font-size: 3em !important;
-        margin: 0;
-        text-shadow: 0 4px 20px rgba(0,0,0,0.2);
-    }
-    
-    /* Form Styling */
-    .stTextInput > div > div > input,
-    .stSelectbox > div > div > select,
-    .stTextArea > div > div > textarea {
-        background: rgba(255, 255, 255, 0.1) !important;
-        color: white !important;
-        border: 1px solid rgba(255, 255, 255, 0.2) !important;
-        border-radius: 8px !important;
-    }
-    
-    .stTextInput > div > div > input:focus,
-    .stSelectbox > div > div > select:focus {
-        border-color: #667eea !important;
-        box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3) !important;
-    }
-    
-    /* Button Styling */
-    .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 10px !important;
-        padding: 12px 24px !important;
-        font-weight: 600 !important;
-        transition: all 0.3s ease !important;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4) !important;
-    }
-    
-    /* DataFrames */
-    .dataframe {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border-radius: 12px !important;
-        overflow: hidden !important;
-    }
-    
-    .dataframe th {
-        background: rgba(102, 126, 234, 0.3) !important;
-        color: white !important;
-        font-weight: 600 !important;
-        padding: 12px !important;
-    }
-    
-    .dataframe td {
-        color: #e0e0e0 !important;
-        padding: 10px 12px !important;
-        border-bottom: 1px solid rgba(255,255,255,0.05) !important;
-    }
-    
-    /* Expander */
-    .streamlit-expanderHeader {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border-radius: 10px !important;
-        color: white !important;
-        font-weight: 600 !important;
-    }
-    
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border-radius: 10px 10px 0 0 !important;
-        color: #e0e0e0 !important;
-        font-weight: 500 !important;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: rgba(102, 126, 234, 0.3) !important;
-        color: white !important;
-    }
-    
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 4px;
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: #667eea;
-        border-radius: 4px;
-    }
-    
-    /* Alert boxes */
-    .stAlert {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border-radius: 12px !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    }
-    
-    /* Metric cards */
-    [data-testid="stMetricValue"] {
-        font-size: 2em !important;
-        font-weight: 700 !important;
-        color: white !important;
-    }
-    
-    [data-testid="stMetricLabel"] {
-        color: #a0a0a0 !important;
-        font-weight: 500 !important;
-    }
-    
-    /* Crew cards */
-    .crew-card {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 16px;
-        padding: 24px;
-        text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        transition: all 0.3s ease;
-    }
-    
-    .crew-card:hover {
-        background: rgba(255, 255, 255, 0.1);
-        transform: translateY(-5px);
-    }
-    
-    .crew-avatar {
-        width: 70px;
-        height: 70px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 28px;
-        font-weight: 700;
-        margin: 0 auto 16px;
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
-    }
-    
-    /* Date indicator */
-    .date-indicator {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-    
-    .date-indicator.overdue {
-        background: rgba(231, 76, 60, 0.2);
-        color: #ff6b6b;
-    }
-    
-    .date-indicator.due-soon {
-        background: rgba(243, 156, 18, 0.2);
-        color: #ffd43b;
-    }
-    
-    .date-indicator.on-track {
-        background: rgba(39, 174, 96, 0.2);
-        color: #51cf66;
-    }
-    
-    /* ================================================================= */
-    /* AI ASSISTANT STYLING - CUTE FLOATING BOT */
-    /* ================================================================= */
-    
-    /* Main AI Container - Fixed at bottom */
-    .ai-assistant-container {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        width: 380px;
-        max-height: 600px;
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-        border-radius: 20px;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-        border: 2px solid rgba(102, 126, 234, 0.5);
-        z-index: 9999;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        transition: all 0.3s ease;
-    }
-    
-    .ai-assistant-container.minimized {
-        height: 70px;
-        max-height: 70px;
-        width: 280px;
-        cursor: pointer;
-    }
-    
-    /* AI Header with Cute Avatar */
-    .ai-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 15px 20px;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        cursor: pointer;
-        border-bottom: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    .ai-avatar {
-        width: 45px;
-        height: 45px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 24px;
-        box-shadow: 0 4px 15px rgba(240, 147, 251, 0.4);
-        animation: bounce 2s infinite;
-    }
-    
-    @keyframes bounce {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-5px); }
-    }
-    
-    .ai-title {
-        flex: 1;
-    }
-    
-    .ai-title h4 {
-        margin: 0;
-        font-size: 16px;
-        color: white !important;
-    }
-    
-    .ai-title span {
-        font-size: 12px;
-        color: rgba(255,255,255,0.7) !important;
-    }
-    
-    .ai-toggle {
-        color: white;
-        font-size: 20px;
-        transition: transform 0.3s ease;
-    }
-    
-    .ai-toggle.collapsed {
-        transform: rotate(180deg);
-    }
-    
-    /* Chat Messages Area */
-    .ai-messages {
-        flex: 1;
-        overflow-y: auto;
-        padding: 15px;
-        max-height: 400px;
-        background: rgba(0,0,0,0.2);
-    }
-    
-    .ai-message {
-        margin-bottom: 12px;
-        padding: 10px 14px;
-        border-radius: 12px;
-        max-width: 85%;
-        font-size: 13px;
-        line-height: 1.5;
-        animation: fadeIn 0.3s ease;
-    }
-    
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .ai-message.user {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white !important;
-        margin-left: auto;
-        border-bottom-right-radius: 4px;
-    }
-    
-    .ai-message.assistant {
-        background: rgba(255,255,255,0.1);
-        color: #e0e0e0 !important;
-        border-bottom-left-radius: 4px;
-        border: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    .ai-message.assistant strong {
-        color: #f093fb !important;
-    }
-    
-    /* Input Area */
-    .ai-input-area {
-        padding: 15px;
-        background: rgba(0,0,0,0.3);
-        border-top: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    .ai-quick-actions {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 10px;
-        flex-wrap: wrap;
-    }
-    
-    .ai-chip {
-        background: rgba(102, 126, 234, 0.2);
-        border: 1px solid rgba(102, 126, 234, 0.5);
-        color: #a0c4ff !important;
-        padding: 4px 10px;
-        border-radius: 15px;
-        font-size: 11px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-    
-    .ai-chip:hover {
-        background: rgba(102, 126, 234, 0.4);
-        color: white !important;
-    }
-    
-    /* Typing Indicator */
-    .ai-typing {
-        display: flex;
-        gap: 4px;
-        padding: 10px 14px;
-        background: rgba(255,255,255,0.05);
-        border-radius: 12px;
-        width: fit-content;
-        margin-bottom: 12px;
-    }
-    
-    .ai-typing-dot {
-        width: 8px;
-        height: 8px;
-        background: #f093fb;
-        border-radius: 50%;
-        animation: typing 1.4s infinite;
-    }
-    
-    .ai-typing-dot:nth-child(2) { animation-delay: 0.2s; }
-    .ai-typing-dot:nth-child(3) { animation-delay: 0.4s; }
-    
-    @keyframes typing {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-5px); }
-    }
-    
-    /* Welcome message styling */
-    .ai-welcome {
-        text-align: center;
-        padding: 20px;
-        color: rgba(255,255,255,0.6) !important;
-        font-size: 13px;
-    }
-    
-    .ai-welcome-icon {
-        font-size: 40px;
-        margin-bottom: 10px;
-    }
-    
-    /* Ensure main content doesn't get hidden behind AI assistant */
-    .main .block-container {
-        padding-bottom: 100px !important;
-    }
-    
-    /* Mobile responsiveness for AI assistant */
-    @media (max-width: 768px) {
-        .ai-assistant-container {
-            width: calc(100% - 40px);
-            right: 20px;
-            left: 20px;
-        }
-    }
-</style>
-""", unsafe_allow_html=True)
-
 # ----------------------------------------------------------------------
 # Database Setup for Historical Data
 # ----------------------------------------------------------------------
-import sqlite3
-
 DB_PATH = "property_preservation.db"
 
 def init_database():
     """Initialize SQLite database for historical data."""
-    
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
+    
     # Historical properties table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS historical_properties (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        property_name TEXT,
-        wo_number TEXT,
-        address TEXT,
-        crew_name TEXT,
-        due_date TEXT,
-        status TEXT,
-        category TEXT,
-        reason TEXT,
-        details TEXT,
-        date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        date_completed TIMESTAMP,
-        is_active INTEGER DEFAULT 1
-    )
-    """)
-
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS historical_properties (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_name TEXT,
+            wo_number TEXT,
+            address TEXT,
+            crew_name TEXT,
+            due_date TEXT,
+            status TEXT,
+            category TEXT,
+            reason TEXT,
+            details TEXT,
+            date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            date_completed TIMESTAMP,
+            is_active INTEGER DEFAULT 1
+        )
+    ''')
+    
     # Crew performance history
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS crew_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        crew_name TEXT,
-        property_name TEXT,
-        action TEXT,
-        status TEXT,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS crew_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            crew_name TEXT,
+            property_name TEXT,
+            action TEXT,
+            status TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
     # Daily snapshots for trends
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS daily_snapshots (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        snapshot_date DATE,
-        total_properties INTEGER,
-        completed INTEGER,
-        overdue INTEGER,
-        in_progress INTEGER,
-        pending INTEGER,
-        active_crews INTEGER
-    )
-    """)
-
-    # User inputs / updates
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS user_updates (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        property_name TEXT,
-        crew_name TEXT,
-        status TEXT,
-        due_date TEXT,
-        details TEXT,
-        reason TEXT,
-        updated_by TEXT,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS daily_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_date DATE,
+            total_properties INTEGER,
+            completed INTEGER,
+            overdue INTEGER,
+            in_progress INTEGER,
+            pending INTEGER,
+            active_crews INTEGER
+        )
+    ''')
+    
+    # User inputs/updates
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_updates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_name TEXT,
+            crew_name TEXT,
+            status TEXT,
+            due_date TEXT,
+            details TEXT,
+            reason TEXT,
+            updated_by TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
     conn.commit()
     conn.close()
 
@@ -892,8 +119,8 @@ def save_to_history(df_updates):
         if existing:
             # Update existing
             cursor.execute('''
-                UPDATE historical_properties
-                SET status = ?, category = ?, crew_name = ?, due_date = ?,
+                UPDATE historical_properties 
+                SET status = ?, category = ?, crew_name = ?, due_date = ?, 
                     reason = ?, details = ?
                 WHERE id = ?
             ''', (
@@ -908,7 +135,7 @@ def save_to_history(df_updates):
         else:
             # Insert new
             cursor.execute('''
-                INSERT INTO historical_properties
+                INSERT INTO historical_properties 
                 (property_name, wo_number, address, crew_name, due_date, status, category, reason, details)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
@@ -947,7 +174,7 @@ def save_daily_snapshot(df_updates):
     active_crews = df_updates["CREW NAME"].dropna().nunique() if "CREW NAME" in df_updates.columns else 0
     
     cursor.execute('''
-        INSERT INTO daily_snapshots
+        INSERT INTO daily_snapshots 
         (snapshot_date, total_properties, completed, overdue, in_progress, pending, active_crews)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ''', (today, total, completed, overdue, in_progress, pending, active_crews))
@@ -959,7 +186,7 @@ def get_historical_data(days=30):
     """Get historical data for trend analysis."""
     conn = sqlite3.connect(DB_PATH)
     query = f"""
-        SELECT * FROM daily_snapshots
+        SELECT * FROM daily_snapshots 
         WHERE snapshot_date >= date('now', '-{days} days')
         ORDER BY snapshot_date ASC
     """
@@ -1379,10 +606,10 @@ def parse_date_american_first(x):
     
     # American formats FIRST (MM/DD/YYYY or MM-DD-YYYY)
     american_formats = [
-        "%m/%d/%Y", # 02/12/2026 -> Feb 12, 2026
-        "%m-%d-%Y", # 02-12-2026 -> Feb 12, 2026
-        "%m/%d/%y", # 02/12/26 -> Feb 12, 2026
-        "%m-%d-%y", # 02-12-26 -> Feb 12, 2026
+        "%m/%d/%Y",  # 02/12/2026 -> Feb 12, 2026
+        "%m-%d-%Y",  # 02-12-2026 -> Feb 12, 2026
+        "%m/%d/%y",  # 02/12/26 -> Feb 12, 2026
+        "%m-%d-%y",  # 02-12-26 -> Feb 12, 2026
     ]
     
     # Try American formats first
@@ -1394,9 +621,9 @@ def parse_date_american_first(x):
     
     # Then try international formats
     intl_formats = [
-        "%d/%m/%Y", # 12/02/2026 -> Feb 12, 2026 (intl)
-        "%d-%m-%Y", # 12-02-2026 -> Feb 12, 2026 (intl)
-        "%Y-%m-%d", # 2026-02-12
+        "%d/%m/%Y",  # 12/02/2026 -> Feb 12, 2026 (intl)
+        "%d-%m-%Y",  # 12-02-2026 -> Feb 12, 2026 (intl)
+        "%Y-%m-%d",  # 2026-02-12
         "%d/%m/%y",
         "%d-%m-%y",
         "%Y/%m/%d",
@@ -1429,8 +656,8 @@ def categorize_status(row):
     
     # In Progress status
     progress_keywords = [
-        "ongoing", "progress", "will be", "try to", "today", "tomorrow",
-        "friday", "monday", "tuesday", "wednesday", "thursday", "saturday",
+        "ongoing", "progress", "will be", "try to", "today", "tomorrow", 
+        "friday", "monday", "tuesday", "wednesday", "thursday", "saturday", 
         "sunday", "working", "scheduled", "assigned", "in progress", "started",
         "crew on site", "crew assigned", "in route", "en route"
     ]
@@ -1439,7 +666,7 @@ def categorize_status(row):
     
     # Pending status
     pending_keywords = [
-        "waiting", "pending", "bid", "pricing", "activation", "quote",
+        "waiting", "pending", "bid", "pricing", "activation", "quote", 
         "estimate", "review", "approval needed", "client approval",
         "need bid", "bid requested", "awaiting"
     ]
@@ -1536,13 +763,13 @@ with st.sidebar:
     # Quick Filters
     st.markdown("<p style='color: rgba(255,255,255,0.8); font-weight: 600; font-size: 14px;'>🔍 Quick Filters</p>", unsafe_allow_html=True)
     filter_options = ["All", "Overdue", "In Progress", "Pending", "Completed"]
-    selected_filter = st.selectbox("Status", filter_options,
+    selected_filter = st.selectbox("Status", filter_options, 
                                    index=filter_options.index(st.session_state.filter_status),
                                    label_visibility="collapsed")
     st.session_state.filter_status = selected_filter
     
     # Search
-    search = st.text_input("🔎 Search", st.session_state.search_query,
+    search = st.text_input("🔎 Search", st.session_state.search_query, 
                           placeholder="Property, crew, address...",
                           label_visibility="collapsed")
     st.session_state.search_query = search
@@ -1551,7 +778,7 @@ with st.sidebar:
     
     # Live indicator
     st.markdown("""
-    <div style="background: linear-gradient(135deg, rgba(46, 204, 113, 0.2) 0%, rgba(39, 174, 96, 0.1) 100%);
+    <div style="background: linear-gradient(135deg, rgba(46, 204, 113, 0.2) 0%, rgba(39, 174, 96, 0.1) 100%); 
                 padding: 12px; border-radius: 10px; text-align: center;
                 border: 1px solid rgba(46, 204, 113, 0.3);">
         <span style="color: #2ecc71; font-weight: 700; font-size: 14px;">● LIVE</span>
@@ -1572,6 +799,7 @@ with st.spinner("🔄 Loading live data from Google Sheets..."):
         st.error(f"❌ Failed to load property data: {e}")
         df_properties = pd.DataFrame(columns=["W/O Number", "address", "latitude", "longitude", "status", "vendor"])
         data_loaded = False
+
     try:
         df_updates = load_updates()
         updates_loaded = True
@@ -1750,7 +978,7 @@ if st.session_state.active_tab == "Dashboard":
                 x=week_df["Day"],
                 y=week_df["Workload Score"],
                 name="Workload Intensity",
-                marker_color=["rgba(102, 126, 234, 0.3)" if not is_today else "rgba(102, 126, 234, 0.5)"
+                marker_color=["rgba(102, 126, 234, 0.3)" if not is_today else "rgba(102, 126, 234, 0.5)" 
                              for is_today in week_df["Is Today"]],
                 width=0.8,
                 showlegend=False
@@ -2045,10 +1273,10 @@ elif st.session_state.active_tab == "Add New":
     st.markdown("<h2 style='margin-bottom: 20px;'>➕ Add New Property / Update</h2>", unsafe_allow_html=True)
     
     st.markdown("""
-    <div style="background: rgba(102, 126, 234, 0.1); border: 1px solid rgba(102, 126, 234, 0.3);
+    <div style="background: rgba(102, 126, 234, 0.1); border: 1px solid rgba(102, 126, 234, 0.3); 
                 border-radius: 12px; padding: 20px; margin-bottom: 25px;">
         <p style="margin: 0; color: #aaa; font-size: 14px;">
-            💡 <b>Tip:</b> Use this form to add new properties or update existing ones.
+            💡 <b>Tip:</b> Use this form to add new properties or update existing ones. 
             Changes will be saved to the local database and can be synced to Google Sheets later.
         </p>
     </div>
@@ -2108,7 +1336,7 @@ elif st.session_state.active_tab == "Add New":
                     
                     # Show confirmation
                     st.markdown(f"""
-                    <div style="background: rgba(39, 174, 96, 0.1); border: 1px solid rgba(39, 174, 96, 0.3);
+                    <div style="background: rgba(39, 174, 96, 0.1); border: 1px solid rgba(39, 174, 96, 0.3); 
                                 border-radius: 10px; padding: 15px; margin-top: 15px;">
                         <h4 style="margin: 0 0 10px 0; color: #51cf66;">✅ Property Added</h4>
                         <p style="margin: 0; color: #aaa; font-size: 13px;">
@@ -2119,7 +1347,7 @@ elif st.session_state.active_tab == "Add New":
                         </p>
                     </div>
                     """, unsafe_allow_html=True)
-
+    
     with tab2:
         st.markdown("<h4 style='margin-bottom: 20px;'>Quick Status Update</h4>", unsafe_allow_html=True)
         
@@ -2357,8 +1585,8 @@ elif st.session_state.active_tab == "Calendar":
                 border_color = "#f39c12" if is_today else "#3498db"
                 
                 st.markdown(f"""
-                <div style="background: {'rgba(243, 156, 18, 0.1)' if is_today else 'rgba(255,255,255,0.03)'};
-                            padding: 15px 20px; border-radius: 12px; margin: 15px 0;
+                <div style="background: {'rgba(243, 156, 18, 0.1)' if is_today else 'rgba(255,255,255,0.03)'}; 
+                            padding: 15px 20px; border-radius: 12px; margin: 15px 0; 
                             border-left: 4px solid {border_color};">
                     <h4 style="margin: 0; font-size: 16px;">{date_label} ({len(day_props)} properties)</h4>
                 </div>
@@ -2499,12 +1727,12 @@ elif st.session_state.active_tab == "Map View":
     # Legend
     legend_html = """
     <div style="
-        position: fixed;
-        bottom: 40px; left: 40px; width: 200px;
-        background: rgba(30, 30, 50, 0.95);
-        border: 1px solid rgba(255,255,255,0.1);
-        z-index: 9999;
-        font-size: 14px;
+        position: fixed; 
+        bottom: 40px; left: 40px; width: 200px; 
+        background: rgba(30, 30, 50, 0.95); 
+        border: 1px solid rgba(255,255,255,0.1); 
+        z-index: 9999; 
+        font-size: 14px; 
         border-radius: 12px;
         padding: 15px;
         box-shadow: 0 8px 32px rgba(0,0,0,0.3);
@@ -2659,11 +1887,11 @@ elif st.session_state.active_tab == "Reports":
         
         if not hist_data.empty:
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=hist_data["snapshot_date"], y=hist_data["total_properties"],
+            fig.add_trace(go.Scatter(x=hist_data["snapshot_date"], y=hist_data["total_properties"], 
                                      name="Total", mode="lines+markers", line=dict(color="#667eea")))
-            fig.add_trace(go.Scatter(x=hist_data["snapshot_date"], y=hist_data["completed"],
+            fig.add_trace(go.Scatter(x=hist_data["snapshot_date"], y=hist_data["completed"], 
                                      name="Completed", mode="lines+markers", line=dict(color="#27ae60")))
-            fig.add_trace(go.Scatter(x=hist_data["snapshot_date"], y=hist_data["overdue"],
+            fig.add_trace(go.Scatter(x=hist_data["snapshot_date"], y=hist_data["overdue"], 
                                      name="Overdue", mode="lines+markers", line=dict(color="#e74c3c")))
             
             fig.update_layout(
@@ -2686,10 +1914,10 @@ elif st.session_state.active_tab == "History":
     st.markdown("<h2 style='margin-bottom: 20px;'>🕐 Historical Data</h2>", unsafe_allow_html=True)
     
     st.markdown("""
-    <div style="background: rgba(102, 126, 234, 0.1); border: 1px solid rgba(102, 126, 234, 0.3);
+    <div style="background: rgba(102, 126, 234, 0.1); border: 1px solid rgba(102, 126, 234, 0.3); 
                 border-radius: 12px; padding: 20px; margin-bottom: 25px;">
         <p style="margin: 0; color: #aaa; font-size: 14px;">
-            📊 <b>Historical Tracking:</b> This dashboard automatically saves daily snapshots and property updates
+            📊 <b>Historical Tracking:</b> This dashboard automatically saves daily snapshots and property updates 
             to a local database. Even if data is deleted from Google Sheets, you'll have a record here.
         </p>
     </div>
@@ -2722,7 +1950,7 @@ elif st.session_state.active_tab == "History":
     with hist_tab2:
         conn = sqlite3.connect(DB_PATH)
         user_updates = pd.read_sql_query(
-            "SELECT * FROM user_updates ORDER BY timestamp DESC LIMIT 50",
+            "SELECT * FROM user_updates ORDER BY timestamp DESC LIMIT 50", 
             conn
         )
         conn.close()
