@@ -23,6 +23,18 @@ import re
 import numpy as np
 
 # =============================================================================
+# GOOGLE SHEETS API IMPORTS
+# =============================================================================
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+    from google.auth.transport.requests import Request
+    GSPREAD_AVAILABLE = True
+except ImportError:
+    GSPREAD_AVAILABLE = False
+    st.warning("⚠️ gspread not installed. Google Sheets write functionality will be disabled. Run: pip install gspread google-auth")
+
+# =============================================================================
 # AI AGENT CONFIGURATION - FREE TIER OPTIONS
 # =============================================================================
 # Option 1: Groq (Recommended - $5 free credit, no CC required)
@@ -42,6 +54,159 @@ AI_CONFIG = {
     "temperature": 0.7,
     "max_tokens": 1024
 }
+
+# =============================================================================
+# GOOGLE SHEETS CONFIGURATION
+# =============================================================================
+# To enable writing to Google Sheets, you need to:
+# 1. Create a service account in Google Cloud Console
+# 2. Download the JSON credentials file
+# 3. Add the service account email to your Google Sheet as Editor
+# 4. Set the credentials in Streamlit secrets or environment variable
+#
+# For Streamlit Cloud: Add to .streamlit/secrets.toml
+# For local: Set GOOGLE_SHEETS_CREDENTIALS env variable or create credentials.json
+
+# Google Sheets IDs (from your existing configuration)
+SHEET_ID = "1AxNmdkDGxYhi0-3-bZGdng-hT1KzxHqpgn_82eqglYg"
+UPDATES_SHEET_ID = "1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY"
+UPDATES_SHEET_GID = "160282702"  # The gid from your CSV_URL
+
+# Initialize Google Sheets client
+def init_google_sheets():
+    """Initialize Google Sheets API client"""
+    if not GSPREAD_AVAILABLE:
+        return None
+
+    try:
+        # Try to get credentials from Streamlit secrets
+        if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
+            credentials = Credentials.from_service_account_info(
+                st.secrets["gcp_service_account"],
+                scopes=['https://www.googleapis.com/auth/spreadsheets',
+                        'https://www.googleapis.com/auth/drive']
+            )
+            return gspread.authorize(credentials)
+
+        # Try to get credentials from environment variable
+        creds_json = os.getenv('GOOGLE_SHEETS_CREDENTIALS')
+        if creds_json:
+            import json as json_mod
+            creds_info = json_mod.loads(creds_json)
+            credentials = Credentials.from_service_account_info(
+                creds_info,
+                scopes=['https://www.googleapis.com/auth/spreadsheets',
+                        'https://www.googleapis.com/auth/drive']
+            )
+            return gspread.authorize(credentials)
+
+        # Try to load from credentials.json file
+        if os.path.exists('credentials.json'):
+            credentials = Credentials.from_service_account_file(
+                'credentials.json',
+                scopes=['https://www.googleapis.com/auth/spreadsheets',
+                        'https://www.googleapis.com/auth/drive']
+            )
+            return gspread.authorize(credentials)
+
+        return None
+
+    except Exception as e:
+        st.error(f"❌ Google Sheets authentication failed: {e}")
+        return None
+
+# Global sheets client (initialized lazily)
+_sheets_client = None
+
+def get_sheets_client():
+    """Get or initialize Google Sheets client"""
+    global _sheets_client
+    if _sheets_client is None:
+        _sheets_client = init_google_sheets()
+    return _sheets_client
+
+def append_to_google_sheet(sheet_id, worksheet_name, row_data):
+    """
+    Append a row to a Google Sheet
+
+    Args:
+        sheet_id: The Google Sheet ID
+        worksheet_name: Name of the worksheet/tab
+        row_data: List of values to append
+
+    Returns:
+        True if successful, False otherwise
+    """
+    client = get_sheets_client()
+    if client is None:
+        return False
+
+    try:
+        spreadsheet = client.open_by_key(sheet_id)
+
+        # Try to get the worksheet by name
+        try:
+            worksheet = spreadsheet.worksheet(worksheet_name)
+        except gspread.WorksheetNotFound:
+            # If worksheet doesn't exist, create it
+            worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows="1000", cols="20")
+            # Add headers if new sheet
+            headers = ["Property", "Details", "CREW NAME", "Due date", "Status 1", "Reason", "Updated By", "Timestamp"]
+            worksheet.append_row(headers)
+
+        # Append the data row
+        worksheet.append_row(row_data)
+        return True
+
+    except Exception as e:
+        st.error(f"❌ Failed to write to Google Sheets: {e}")
+        return False
+
+def update_google_sheet_row(sheet_id, worksheet_name, search_column, search_value, update_data):
+    """
+    Update an existing row in Google Sheets
+
+    Args:
+        sheet_id: The Google Sheet ID
+        worksheet_name: Name of the worksheet/tab
+        search_column: Column name to search in
+        search_value: Value to search for
+        update_data: Dict of column names to new values
+
+    Returns:
+        True if successful, False otherwise
+    """
+    client = get_sheets_client()
+    if client is None:
+        return False
+
+    try:
+        spreadsheet = client.open_by_key(sheet_id)
+        worksheet = spreadsheet.worksheet(worksheet_name)
+
+        # Find the cell with the search value
+        cell = worksheet.find(str(search_value), in_column=search_column)
+
+        if cell:
+            row_number = cell.row
+
+            # Get all headers
+            headers = worksheet.row_values(1)
+
+            # Update each column
+            for col_name, new_value in update_data.items():
+                if col_name in headers:
+                    col_index = headers.index(col_name) + 1
+                    worksheet.update_cell(row_number, col_index, new_value)
+
+            return True
+        else:
+            st.warning(f"⚠️ Could not find row with {search_column} = {search_value}")
+            return False
+
+    except Exception as e:
+        st.error(f"❌ Failed to update Google Sheets: {e}")
+        return False
 
 # =============================================================================
 # AI AGENT CLASS
@@ -955,7 +1120,21 @@ def save_daily_snapshot(df_updates):
     conn.close()
 
 def get_historical_data(days=30):
-    """Get historical
+    """Get historical data for trend analysis."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Query to get historical data
+    query = """
+        SELECT * FROM historical_properties 
+        WHERE date_added >= date('now', '-{} days')
+        ORDER BY date_added DESC
+    """.format(days)
+
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
 # ----------------------------------------------------------------------
 # Database Setup for Historical Data
 # ----------------------------------------------------------------------
@@ -1128,7 +1307,8 @@ def get_all_historical_properties():
     return df
 
 def add_user_update(property_name, crew_name, status, due_date, details, reason, updated_by="System"):
-    """Add a user update to the database."""
+    """Add a user update to the database AND Google Sheets."""
+    # Save to local SQLite database
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
@@ -1138,354 +1318,47 @@ def add_user_update(property_name, crew_name, status, due_date, details, reason,
     conn.commit()
     conn.close()
 
+    # Also save to Google Sheets (if configured)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Prepare row data for Google Sheets
+    # Match the column order: Property, Details, CREW NAME, Due date, Status 1, Reason, Updated By, Timestamp
+    gs_row = [
+        property_name,
+        details if details else "",
+        crew_name if crew_name else "",
+        due_date if due_date else "",
+        status if status else "",
+        reason if reason else "",
+        updated_by,
+        timestamp
+    ]
+
+    # Try to append to Google Sheets
+    # The worksheet name might be different - adjust as needed
+    worksheet_names = ["Sheet1", "Updates", "Data", "Properties"]
+
+    gs_success = False
+    for ws_name in worksheet_names:
+        if append_to_google_sheet(UPDATES_SHEET_ID, ws_name, gs_row):
+            gs_success = True
+            break
+
+    if not gs_success and get_sheets_client() is not None:
+        # If all worksheet names failed but client is working, try to get first worksheet
+        try:
+            client = get_sheets_client()
+            spreadsheet = client.open_by_key(UPDATES_SHEET_ID)
+            first_ws = spreadsheet.sheet1
+            first_ws.append_row(gs_row)
+            gs_success = True
+        except Exception as e:
+            st.warning(f"⚠️ Could not write to Google Sheets: {e}")
+
+    return gs_success
+
 # Initialize database
 init_database()
-
-# ----------------------------------------------------------------------
-# Custom CSS with Better Fonts
-# ----------------------------------------------------------------------
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-    
-    * {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
-    }
-    
-    /* Main container */
-    .main {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-        color: #ffffff;
-    }
-    
-    /* Sidebar styling */
-    .css-1d391kg, [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0f0f23 0%, #1a1a3e 100%) !important;
-    }
-    
-    /* Typography */
-    h1, h2, h3, h4, h5, h6 {
-        font-weight: 700 !important;
-        color: #ffffff !important;
-        letter-spacing: -0.02em !important;
-    }
-    
-    p, span, div {
-        color: #e0e0e0 !important;
-        font-weight: 400 !important;
-    }
-    
-    /* KPI Cards */
-    .kpi-container {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 16px;
-        padding: 24px;
-        color: white;
-        box-shadow: 0 10px 40px rgba(102, 126, 234, 0.3);
-        transition: all 0.3s ease;
-        cursor: pointer;
-        border: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    .kpi-container:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 15px 50px rgba(102, 126, 234, 0.4);
-    }
-    
-    .kpi-value {
-        font-size: 2.5em;
-        font-weight: 800;
-        margin: 0;
-        text-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    }
-    
-    .kpi-label {
-        font-size: 0.9em;
-        opacity: 0.9;
-        margin-top: 8px;
-        font-weight: 500;
-    }
-    
-    .kpi-completed {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-    }
-    
-    .kpi-overdue {
-        background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
-        animation: pulse-red 2s infinite;
-    }
-    
-    .kpi-progress {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    }
-    
-    .kpi-pending {
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-    }
-    
-    @keyframes pulse-red {
-        0%, 100% { box-shadow: 0 10px 40px rgba(235, 51, 73, 0.4); }
-        50% { box-shadow: 0 10px 60px rgba(235, 51, 73, 0.6); }
-    }
-    
-    /* Property Cards */
-    .property-card {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(10px);
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 12px;
-        border-left: 4px solid;
-        transition: all 0.3s ease;
-        border: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    .property-card:hover {
-        background: rgba(255, 255, 255, 0.1);
-        transform: translateX(8px);
-    }
-    
-    .property-card.overdue { border-left-color: #e74c3c; }
-    .property-card.completed { border-left-color: #27ae60; }
-    .property-card.in-progress { border-left-color: #f39c12; }
-    .property-card.pending { border-left-color: #3498db; }
-    
-    /* Status Badges */
-    .status-badge {
-        display: inline-block;
-        padding: 6px 14px;
-        border-radius: 20px;
-        font-size: 11px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    
-    .status-badge.overdue {
-        background: rgba(231, 76, 60, 0.2);
-        color: #ff6b6b;
-        border: 1px solid rgba(231, 76, 60, 0.3);
-    }
-    
-    .status-badge.completed {
-        background: rgba(39, 174, 96, 0.2);
-        color: #51cf66;
-        border: 1px solid rgba(39, 174, 96, 0.3);
-    }
-    
-    .status-badge.in-progress {
-        background: rgba(243, 156, 18, 0.2);
-        color: #ffd43b;
-        border: 1px solid rgba(243, 156, 18, 0.3);
-    }
-    
-    .status-badge.pending {
-        background: rgba(52, 152, 219, 0.2);
-        color: #74c0fc;
-        border: 1px solid rgba(52, 152, 219, 0.3);
-    }
-    
-    /* Insight Cards */
-    .insight-box {
-        background: rgba(102, 126, 234, 0.1);
-        border: 1px solid rgba(102, 126, 234, 0.3);
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 12px;
-        cursor: pointer;
-        transition: all 0.3s ease;
-    }
-    
-    .insight-box:hover {
-        background: rgba(102, 126, 234, 0.2);
-        transform: scale(1.02);
-    }
-    
-    /* Dashboard Header */
-    .dashboard-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 40px;
-        border-radius: 20px;
-        margin-bottom: 30px;
-        text-align: center;
-        box-shadow: 0 20px 60px rgba(102, 126, 234, 0.3);
-    }
-    
-    .dashboard-header h1 {
-        font-size: 3em !important;
-        margin: 0;
-        text-shadow: 0 4px 20px rgba(0,0,0,0.2);
-    }
-    
-    /* Form Styling */
-    .stTextInput > div > div > input,
-    .stSelectbox > div > div > select,
-    .stTextArea > div > div > textarea {
-        background: rgba(255, 255, 255, 0.1) !important;
-        color: white !important;
-        border: 1px solid rgba(255, 255, 255, 0.2) !important;
-        border-radius: 8px !important;
-    }
-    
-    .stTextInput > div > div > input:focus,
-    .stSelectbox > div > div > select:focus {
-        border-color: #667eea !important;
-        box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3) !important;
-    }
-    
-    /* Button Styling */
-    .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 10px !important;
-        padding: 12px 24px !important;
-        font-weight: 600 !important;
-        transition: all 0.3s ease !important;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4) !important;
-    }
-    
-    /* DataFrames */
-    .dataframe {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border-radius: 12px !important;
-        overflow: hidden !important;
-    }
-    
-    .dataframe th {
-        background: rgba(102, 126, 234, 0.3) !important;
-        color: white !important;
-        font-weight: 600 !important;
-        padding: 12px !important;
-    }
-    
-    .dataframe td {
-        color: #e0e0e0 !important;
-        padding: 10px 12px !important;
-        border-bottom: 1px solid rgba(255,255,255,0.05) !important;
-    }
-    
-    /* Expander */
-    .streamlit-expanderHeader {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border-radius: 10px !important;
-        color: white !important;
-        font-weight: 600 !important;
-    }
-    
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border-radius: 10px 10px 0 0 !important;
-        color: #e0e0e0 !important;
-        font-weight: 500 !important;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: rgba(102, 126, 234, 0.3) !important;
-        color: white !important;
-    }
-    
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 4px;
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: #667eea;
-        border-radius: 4px;
-    }
-    
-    /* Alert boxes */
-    .stAlert {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border-radius: 12px !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    }
-    
-    /* Metric cards */
-    [data-testid="stMetricValue"] {
-        font-size: 2em !important;
-        font-weight: 700 !important;
-        color: white !important;
-    }
-    
-    [data-testid="stMetricLabel"] {
-        color: #a0a0a0 !important;
-        font-weight: 500 !important;
-    }
-    
-    /* Crew cards */
-    .crew-card {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 16px;
-        padding: 24px;
-        text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        transition: all 0.3s ease;
-    }
-    
-    .crew-card:hover {
-        background: rgba(255, 255, 255, 0.1);
-        transform: translateY(-5px);
-    }
-    
-    .crew-avatar {
-        width: 70px;
-        height: 70px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 28px;
-        font-weight: 700;
-        margin: 0 auto 16px;
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
-    }
-    
-    /* Date indicator */
-    .date-indicator {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-    
-    .date-indicator.overdue {
-        background: rgba(231, 76, 60, 0.2);
-        color: #ff6b6b;
-    }
-    
-    .date-indicator.due-soon {
-        background: rgba(243, 156, 18, 0.2);
-        color: #ffd43b;
-    }
-    
-    .date-indicator.on-track {
-        background: rgba(39, 174, 96, 0.2);
-        color: #51cf66;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # ----------------------------------------------------------------------
 # Session State Initialization
@@ -1632,9 +1505,8 @@ def format_date_display(date_val):
 # ----------------------------------------------------------------------
 # Data Loading Functions
 # ----------------------------------------------------------------------
-SHEET_ID = "1AxNmdkDGxYhi0-3-bZGdng-hT1KzxHqpgn_82eqglYg"
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv"
-CSV_URL_UPDATES = "https://docs.google.com/spreadsheets/d/1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY/gviz/tq?tqx=out:csv&gid=160282702"
+CSV_URL_UPDATES = f"https://docs.google.com/spreadsheets/d/{UPDATES_SHEET_ID}/gviz/tq?tqx=out:csv&gid={UPDATES_SHEET_GID}"
 
 @st.cache_data(ttl=180)
 def load_property_sheet(url):
