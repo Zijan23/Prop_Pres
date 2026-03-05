@@ -38,7 +38,7 @@ except ImportError:
 # AI AGENT CONFIGURATION - FREE TIER OPTIONS
 # =============================================================================
 # Option 1: Groq (Recommended - $5 free credit, no CC required)
-# Get key at: https://console.groq.com/keys
+# key at: https://console.groq.com/keys
 # Default key below is placeholder - replace with your actual key
 # Option 2: OpenRouter (Free tier available)
 # Get key at: https://openrouter.ai/keys
