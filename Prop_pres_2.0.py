@@ -21,13 +21,24 @@ import time
 import requests
 import re
 import numpy as np
-import base64
+
+# =============================================================================
+# GOOGLE SHEETS API IMPORTS
+# =============================================================================
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+    from google.auth.transport.requests import Request
+    GSPREAD_AVAILABLE = True
+except ImportError:
+    GSPREAD_AVAILABLE = False
+    st.warning("⚠️ gspread not installed. Google Sheets write functionality will be disabled. Run: pip install gspread google-auth")
 
 # =============================================================================
 # AI AGENT CONFIGURATION - FREE TIER OPTIONS
 # =============================================================================
 # Option 1: Groq (Recommended - $5 free credit, no CC required)
-# Get key at: https://console.groq.com/keys
+# key at: https://console.groq.com/keys
 # Default key below is placeholder - replace with your actual key
 # Option 2: OpenRouter (Free tier available)
 # Get key at: https://openrouter.ai/keys
@@ -43,6 +54,159 @@ AI_CONFIG = {
     "temperature": 0.7,
     "max_tokens": 1024
 }
+
+# =============================================================================
+# GOOGLE SHEETS CONFIGURATION
+# =============================================================================
+# To enable writing to Google Sheets, you need to:
+# 1. Create a service account in Google Cloud Console
+# 2. Download the JSON credentials file
+# 3. Add the service account email to your Google Sheet as Editor
+# 4. Set the credentials in Streamlit secrets or environment variable
+#
+# For Streamlit Cloud: Add to .streamlit/secrets.toml
+# For local: Set GOOGLE_SHEETS_CREDENTIALS env variable or create credentials.json
+
+# Google Sheets IDs (from your existing configuration)
+SHEET_ID = "1AxNmdkDGxYhi0-3-bZGdng-hT1KzxHqpgn_82eqglYg"
+UPDATES_SHEET_ID = "1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY"
+UPDATES_SHEET_GID = "160282702"  # The gid from your CSV_URL
+
+# Initialize Google Sheets client
+def init_google_sheets():
+    """Initialize Google Sheets API client"""
+    if not GSPREAD_AVAILABLE:
+        return None
+
+    try:
+        # Try to get credentials from Streamlit secrets
+        if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
+            credentials = Credentials.from_service_account_info(
+                st.secrets["gcp_service_account"],
+                scopes=['https://www.googleapis.com/auth/spreadsheets',
+                        'https://www.googleapis.com/auth/drive']
+            )
+            return gspread.authorize(credentials)
+
+        # Try to get credentials from environment variable
+        creds_json = os.getenv('GOOGLE_SHEETS_CREDENTIALS')
+        if creds_json:
+            import json as json_mod
+            creds_info = json_mod.loads(creds_json)
+            credentials = Credentials.from_service_account_info(
+                creds_info,
+                scopes=['https://www.googleapis.com/auth/spreadsheets',
+                        'https://www.googleapis.com/auth/drive']
+            )
+            return gspread.authorize(credentials)
+
+        # Try to load from credentials.json file
+        if os.path.exists('credentials.json'):
+            credentials = Credentials.from_service_account_file(
+                'credentials.json',
+                scopes=['https://www.googleapis.com/auth/spreadsheets',
+                        'https://www.googleapis.com/auth/drive']
+            )
+            return gspread.authorize(credentials)
+
+        return None
+
+    except Exception as e:
+        st.error(f"❌ Google Sheets authentication failed: {e}")
+        return None
+
+# Global sheets client (initialized lazily)
+_sheets_client = None
+
+def get_sheets_client():
+    """Get or initialize Google Sheets client"""
+    global _sheets_client
+    if _sheets_client is None:
+        _sheets_client = init_google_sheets()
+    return _sheets_client
+
+def append_to_google_sheet(sheet_id, worksheet_name, row_data):
+    """
+    Append a row to a Google Sheet
+
+    Args:
+        sheet_id: The Google Sheet ID
+        worksheet_name: Name of the worksheet/tab
+        row_data: List of values to append
+
+    Returns:
+        True if successful, False otherwise
+    """
+    client = get_sheets_client()
+    if client is None:
+        return False
+
+    try:
+        spreadsheet = client.open_by_key(sheet_id)
+
+        # Try to get the worksheet by name
+        try:
+            worksheet = spreadsheet.worksheet(worksheet_name)
+        except gspread.WorksheetNotFound:
+            # If worksheet doesn't exist, create it
+            worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows="1000", cols="20")
+            # Add headers if new sheet
+            headers = ["Property", "Details", "CREW NAME", "Due date", "Status 1", "Reason", "Updated By", "Timestamp"]
+            worksheet.append_row(headers)
+
+        # Append the data row
+        worksheet.append_row(row_data)
+        return True
+
+    except Exception as e:
+        st.error(f"❌ Failed to write to Google Sheets: {e}")
+        return False
+
+def update_google_sheet_row(sheet_id, worksheet_name, search_column, search_value, update_data):
+    """
+    Update an existing row in Google Sheets
+
+    Args:
+        sheet_id: The Google Sheet ID
+        worksheet_name: Name of the worksheet/tab
+        search_column: Column name to search in
+        search_value: Value to search for
+        update_data: Dict of column names to new values
+
+    Returns:
+        True if successful, False otherwise
+    """
+    client = get_sheets_client()
+    if client is None:
+        return False
+
+    try:
+        spreadsheet = client.open_by_key(sheet_id)
+        worksheet = spreadsheet.worksheet(worksheet_name)
+
+        # Find the cell with the search value
+        cell = worksheet.find(str(search_value), in_column=search_column)
+
+        if cell:
+            row_number = cell.row
+
+            # Get all headers
+            headers = worksheet.row_values(1)
+
+            # Update each column
+            for col_name, new_value in update_data.items():
+                if col_name in headers:
+                    col_index = headers.index(col_name) + 1
+                    worksheet.update_cell(row_number, col_index, new_value)
+
+            return True
+        else:
+            st.warning(f"⚠️ Could not find row with {search_column} = {search_value}")
+            return False
+
+    except Exception as e:
+        st.error(f"❌ Failed to update Google Sheets: {e}")
+        return False
 
 # =============================================================================
 # AI AGENT CLASS
@@ -958,7 +1122,15 @@ def save_daily_snapshot(df_updates):
 def get_historical_data(days=30):
     """Get historical data for trend analysis."""
     conn = sqlite3.connect(DB_PATH)
-    query = f"SELECT * FROM historical_properties WHERE date_added >= date('now', '-{days} days') ORDER BY date_added DESC"
+    cursor = conn.cursor()
+
+    # Query to get historical data
+    query = """
+        SELECT * FROM historical_properties 
+        WHERE date_added >= date('now', '-{} days')
+        ORDER BY date_added DESC
+    """.format(days)
+
     df = pd.read_sql_query(query, conn)
     conn.close()
     return df
@@ -1135,7 +1307,8 @@ def get_all_historical_properties():
     return df
 
 def add_user_update(property_name, crew_name, status, due_date, details, reason, updated_by="System"):
-    """Add a user update to the database."""
+    """Add a user update to the database AND Google Sheets."""
+    # Save to local SQLite database
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
@@ -1145,354 +1318,47 @@ def add_user_update(property_name, crew_name, status, due_date, details, reason,
     conn.commit()
     conn.close()
 
+    # Also save to Google Sheets (if configured)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Prepare row data for Google Sheets
+    # Match the column order: Property, Details, CREW NAME, Due date, Status 1, Reason, Updated By, Timestamp
+    gs_row = [
+        property_name,
+        details if details else "",
+        crew_name if crew_name else "",
+        due_date if due_date else "",
+        status if status else "",
+        reason if reason else "",
+        updated_by,
+        timestamp
+    ]
+
+    # Try to append to Google Sheets
+    # The worksheet name might be different - adjust as needed
+    worksheet_names = ["Sheet1", "Updates", "Data", "Properties"]
+
+    gs_success = False
+    for ws_name in worksheet_names:
+        if append_to_google_sheet(UPDATES_SHEET_ID, ws_name, gs_row):
+            gs_success = True
+            break
+
+    if not gs_success and get_sheets_client() is not None:
+        # If all worksheet names failed but client is working, try to get first worksheet
+        try:
+            client = get_sheets_client()
+            spreadsheet = client.open_by_key(UPDATES_SHEET_ID)
+            first_ws = spreadsheet.sheet1
+            first_ws.append_row(gs_row)
+            gs_success = True
+        except Exception as e:
+            st.warning(f"⚠️ Could not write to Google Sheets: {e}")
+
+    return gs_success
+
 # Initialize database
 init_database()
-
-# ----------------------------------------------------------------------
-# Custom CSS with Better Fonts
-# ----------------------------------------------------------------------
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-    
-    * {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
-    }
-    
-    /* Main container */
-    .main {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-        color: #ffffff;
-    }
-    
-    /* Sidebar styling */
-    .css-1d391kg, [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0f0f23 0%, #1a1a3e 100%) !important;
-    }
-    
-    /* Typography */
-    h1, h2, h3, h4, h5, h6 {
-        font-weight: 700 !important;
-        color: #ffffff !important;
-        letter-spacing: -0.02em !important;
-    }
-    
-    p, span, div {
-        color: #e0e0e0 !important;
-        font-weight: 400 !important;
-    }
-    
-    /* KPI Cards */
-    .kpi-container {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 16px;
-        padding: 24px;
-        color: white;
-        box-shadow: 0 10px 40px rgba(102, 126, 234, 0.3);
-        transition: all 0.3s ease;
-        cursor: pointer;
-        border: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    .kpi-container:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 15px 50px rgba(102, 126, 234, 0.4);
-    }
-    
-    .kpi-value {
-        font-size: 2.5em;
-        font-weight: 800;
-        margin: 0;
-        text-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    }
-    
-    .kpi-label {
-        font-size: 0.9em;
-        opacity: 0.9;
-        margin-top: 8px;
-        font-weight: 500;
-    }
-    
-    .kpi-completed {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-    }
-    
-    .kpi-overdue {
-        background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
-        animation: pulse-red 2s infinite;
-    }
-    
-    .kpi-progress {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    }
-    
-    .kpi-pending {
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-    }
-    
-    @keyframes pulse-red {
-        0%, 100% { box-shadow: 0 10px 40px rgba(235, 51, 73, 0.4); }
-        50% { box-shadow: 0 10px 60px rgba(235, 51, 73, 0.6); }
-    }
-    
-    /* Property Cards */
-    .property-card {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(10px);
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 12px;
-        border-left: 4px solid;
-        transition: all 0.3s ease;
-        border: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    .property-card:hover {
-        background: rgba(255, 255, 255, 0.1);
-        transform: translateX(8px);
-    }
-    
-    .property-card.overdue { border-left-color: #e74c3c; }
-    .property-card.completed { border-left-color: #27ae60; }
-    .property-card.in-progress { border-left-color: #f39c12; }
-    .property-card.pending { border-left-color: #3498db; }
-    
-    /* Status Badges */
-    .status-badge {
-        display: inline-block;
-        padding: 6px 14px;
-        border-radius: 20px;
-        font-size: 11px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    
-    .status-badge.overdue {
-        background: rgba(231, 76, 60, 0.2);
-        color: #ff6b6b;
-        border: 1px solid rgba(231, 76, 60, 0.3);
-    }
-    
-    .status-badge.completed {
-        background: rgba(39, 174, 96, 0.2);
-        color: #51cf66;
-        border: 1px solid rgba(39, 174, 96, 0.3);
-    }
-    
-    .status-badge.in-progress {
-        background: rgba(243, 156, 18, 0.2);
-        color: #ffd43b;
-        border: 1px solid rgba(243, 156, 18, 0.3);
-    }
-    
-    .status-badge.pending {
-        background: rgba(52, 152, 219, 0.2);
-        color: #74c0fc;
-        border: 1px solid rgba(52, 152, 219, 0.3);
-    }
-    
-    /* Insight Cards */
-    .insight-box {
-        background: rgba(102, 126, 234, 0.1);
-        border: 1px solid rgba(102, 126, 234, 0.3);
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 12px;
-        cursor: pointer;
-        transition: all 0.3s ease;
-    }
-    
-    .insight-box:hover {
-        background: rgba(102, 126, 234, 0.2);
-        transform: scale(1.02);
-    }
-    
-    /* Dashboard Header */
-    .dashboard-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 40px;
-        border-radius: 20px;
-        margin-bottom: 30px;
-        text-align: center;
-        box-shadow: 0 20px 60px rgba(102, 126, 234, 0.3);
-    }
-    
-    .dashboard-header h1 {
-        font-size: 3em !important;
-        margin: 0;
-        text-shadow: 0 4px 20px rgba(0,0,0,0.2);
-    }
-    
-    /* Form Styling */
-    .stTextInput > div > div > input,
-    .stSelectbox > div > div > select,
-    .stTextArea > div > div > textarea {
-        background: rgba(255, 255, 255, 0.1) !important;
-        color: white !important;
-        border: 1px solid rgba(255, 255, 255, 0.2) !important;
-        border-radius: 8px !important;
-    }
-    
-    .stTextInput > div > div > input:focus,
-    .stSelectbox > div > div > select:focus {
-        border-color: #667eea !important;
-        box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3) !important;
-    }
-    
-    /* Button Styling */
-    .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 10px !important;
-        padding: 12px 24px !important;
-        font-weight: 600 !important;
-        transition: all 0.3s ease !important;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4) !important;
-    }
-    
-    /* DataFrames */
-    .dataframe {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border-radius: 12px !important;
-        overflow: hidden !important;
-    }
-    
-    .dataframe th {
-        background: rgba(102, 126, 234, 0.3) !important;
-        color: white !important;
-        font-weight: 600 !important;
-        padding: 12px !important;
-    }
-    
-    .dataframe td {
-        color: #e0e0e0 !important;
-        padding: 10px 12px !important;
-        border-bottom: 1px solid rgba(255,255,255,0.05) !important;
-    }
-    
-    /* Expander */
-    .streamlit-expanderHeader {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border-radius: 10px !important;
-        color: white !important;
-        font-weight: 600 !important;
-    }
-    
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border-radius: 10px 10px 0 0 !important;
-        color: #e0e0e0 !important;
-        font-weight: 500 !important;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: rgba(102, 126, 234, 0.3) !important;
-        color: white !important;
-    }
-    
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 4px;
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: #667eea;
-        border-radius: 4px;
-    }
-    
-    /* Alert boxes */
-    .stAlert {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border-radius: 12px !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    }
-    
-    /* Metric cards */
-    [data-testid="stMetricValue"] {
-        font-size: 2em !important;
-        font-weight: 700 !important;
-        color: white !important;
-    }
-    
-    [data-testid="stMetricLabel"] {
-        color: #a0a0a0 !important;
-        font-weight: 500 !important;
-    }
-    
-    /* Crew cards */
-    .crew-card {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 16px;
-        padding: 24px;
-        text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        transition: all 0.3s ease;
-    }
-    
-    .crew-card:hover {
-        background: rgba(255, 255, 255, 0.1);
-        transform: translateY(-5px);
-    }
-    
-    .crew-avatar {
-        width: 70px;
-        height: 70px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 28px;
-        font-weight: 700;
-        margin: 0 auto 16px;
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
-    }
-    
-    /* Date indicator */
-    .date-indicator {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-    
-    .date-indicator.overdue {
-        background: rgba(231, 76, 60, 0.2);
-        color: #ff6b6b;
-    }
-    
-    .date-indicator.due-soon {
-        background: rgba(243, 156, 18, 0.2);
-        color: #ffd43b;
-    }
-    
-    .date-indicator.on-track {
-        background: rgba(39, 174, 96, 0.2);
-        color: #51cf66;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # ----------------------------------------------------------------------
 # Session State Initialization
@@ -1639,30 +1505,17 @@ def format_date_display(date_val):
 # ----------------------------------------------------------------------
 # Data Loading Functions
 # ----------------------------------------------------------------------
-SHEET_ID = "1AxNmdkDGxYhi0-3-bZGdng-hT1KzxHqpgn_82eqglYg"
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv"
-CSV_URL_UPDATES = "https://docs.google.com/spreadsheets/d/1Qkknd1fVrZ1uiTjqOFzEygecnHiSuIDEKRnKkMul-BY/gviz/tq?tqx=out:csv&gid=160282702"
+CSV_URL_UPDATES = f"https://docs.google.com/spreadsheets/d/{UPDATES_SHEET_ID}/gviz/tq?tqx=out:csv&gid={UPDATES_SHEET_GID}"
 
 @st.cache_data(ttl=180)
 def load_property_sheet(url):
-    try:
-        df = pd.read_csv(url)
-        return df
-    except Exception as e:
-        st.error(f"❌ Error loading property sheet: {e}")
-        return pd.DataFrame()
+    df = pd.read_csv(url)
+    return df
 
 @st.cache_data(ttl=180)
 def load_updates():
-    try:
-        df = pd.read_csv(CSV_URL_UPDATES)
-        # Strip whitespace from column names
-        df.columns = [c.strip() for c in df.columns]
-        return df
-    except Exception as e:
-        st.error(f"❌ Error loading updates sheet: {e}")
-        # Return empty DataFrame with expected columns
-        return pd.DataFrame(columns=["Property", "Details", "CREW NAME", "Due date", "Status 1", "Reason"])
+    return pd.read_csv(CSV_URL_UPDATES)
 
 # ----------------------------------------------------------------------
 # Sidebar Navigation
@@ -1677,8 +1530,8 @@ with st.sidebar:
     
     selected = option_menu(
         menu_title=None,
-        options=["Dashboard", "Properties", "Add New", "Crew Analytics", "Calendar", "Map View", "Reports", "History"],
-        icons=["speedometer2", "houses", "plus-circle", "people", "calendar3", "geo-alt", "file-earmark-text", "clock-history"],
+        options=["Dashboard", "Properties", "Add New", "Crew Analytics", "Calendar", "Map View", "Reports", "History", "AI Assistant"],
+        icons=["speedometer2", "houses", "plus-circle", "people", "calendar3", "geo-alt", "file-earmark-text", "clock-history", "robot"],
         menu_icon="cast",
         default_index=0,
         styles={
@@ -1762,21 +1615,8 @@ if "latitude" in df_properties.columns and "longitude" in df_properties.columns:
 
 # Process updates data with FIXED date parsing
 df_updates.columns = [c.strip() for c in df_updates.columns]
-
-# Check for required columns and handle missing ones
-required_cols = ["Property", "CREW NAME", "Status 1"]
-missing_cols = [col for col in required_cols if col not in df_updates.columns]
-
-if missing_cols:
-    st.warning(f"⚠️ Missing columns in data: {missing_cols}. Available columns: {list(df_updates.columns)}")
-    # Create empty columns for missing ones
-    for col in missing_cols:
-        df_updates[col] = ""
-
 if "Due date" in df_updates.columns:
     df_updates["Due date"] = df_updates["Due date"].apply(parse_date_american_first)
-else:
-    df_updates["Due date"] = pd.NaT
 
 # Categorize and add computed columns
 df_updates["Category"] = df_updates.apply(categorize_status, axis=1)
@@ -1811,7 +1651,8 @@ if st.session_state.active_tab == "Dashboard":
         in_progress = (df_updates["Category"] == "🔄 In Progress").sum()
         pending = (df_updates["Category"] == "⏳ Pending / Bid").sum()
         completion_rate = round((completed / total * 100), 1) if total > 0 else 0
-        active_crews = df_updates["CREW NAME"].dropna().nunique()
+        st.write(df_updates.columns)# temporary
+        active_crews = df_updates["CREW NAME"].dropna().nunique() if "CREW NAME" in df_updates.columns else 0
         
         # KPI Cards Row
         st.markdown("<h3 style='margin-bottom: 20px;'>📊 Key Performance Indicators</h3>", unsafe_allow_html=True)
@@ -2865,32 +2706,6 @@ elif st.session_state.active_tab == "Reports":
         else:
             st.info("ℹ️ Not enough historical data yet. Data will accumulate over time.")
 
-    
-    # PDF Document Upload Section
-    st.markdown("---")
-    st.markdown("<h3 style='margin-bottom: 20px;'>📄 Document Upload & Viewer</h3>", unsafe_allow_html=True)
-
-    uploaded_pdf = st.file_uploader("Upload a PDF document", type="pdf", key="pdf_uploader")
-
-    if uploaded_pdf is not None:
-        pdf_bytes = uploaded_pdf.read()
-        st.success(f"✅ Uploaded: **{uploaded_pdf.name}** ({len(pdf_bytes):,} bytes)")
-
-        pdf_tab1, pdf_tab2 = st.tabs(["📖 View PDF", "💾 Download"])
-
-        with pdf_tab1:
-            base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-            pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800px" type="application/pdf"></iframe>'
-            st.markdown(pdf_display, unsafe_allow_html=True)
-
-        with pdf_tab2:
-            st.download_button(
-                label="📥 Download PDF",
-                data=pdf_bytes,
-                file_name=uploaded_pdf.name,
-                mime="application/pdf",
-                use_container_width=True
-            )
 # ----------------------------------------------------------------------
 # HISTORY VIEW
 # ----------------------------------------------------------------------
@@ -2957,6 +2772,361 @@ elif st.session_state.active_tab == "History":
             )
         else:
             st.info("ℹ️ No user updates yet. Updates will appear here when you add or modify properties.")
+
+
+# =============================================================================
+# ----------------------------------------------------------------------
+# AI ASSISTANT VIEW
+# ----------------------------------------------------------------------
+elif st.session_state.active_tab == "AI Assistant":
+    st.markdown("<h2 style=\"margin-bottom: 20px;\">🤖 AI Assistant - Preservation Pal</h2>", unsafe_allow_html=True)
+
+    # Initialize chat history for this view
+    if 'ai_chat_history_full' not in st.session_state:
+        st.session_state.ai_chat_history_full = []
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%); 
+                    padding: 20px; border-radius: 15px; margin-bottom: 20px;
+                    border: 1px solid rgba(102, 126, 234, 0.3);">
+            <h3 style="margin: 0 0 10px 0; color: #fff;">👋 Welcome to Preservation Pal!</h3>
+            <p style="margin: 0; color: #ccc; font-size: 14px;">
+                I'm your AI assistant for property preservation management. I can help you find properties, 
+                check statuses, analyze data, and answer questions about your dashboard.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Chat interface
+        chat_container = st.container()
+        with chat_container:
+            # Display chat history
+            for msg in st.session_state.ai_chat_history_full:
+                if msg['role'] == 'user':
+                    st.markdown(f"**👤 You:** {msg['content']}")
+                else:
+                    st.markdown(f"🤖 **Preservation Pal:** {msg['content']}")
+
+            # Input area
+            with st.form(key="ai_assistant_form", clear_on_submit=True):
+                user_input = st.text_area("💬 Your message:", 
+                                        height=80,
+                                        placeholder="Ask me anything about your properties...")
+
+                col_btn1, col_btn2, col_btn3 = st.columns([2, 2, 1])
+                with col_btn1:
+                    submit = st.form_submit_button("📤 Send", use_container_width=True, type="primary")
+                with col_btn2:
+                    if st.form_submit_button("🗑️ Clear Chat", use_container_width=True):
+                        st.session_state.ai_chat_history_full = []
+                        st.rerun()
+                with col_btn3:
+                    if st.form_submit_button("🔄 Refresh Data", use_container_width=True):
+                        st.cache_data.clear()
+                        st.rerun()
+
+                if submit and user_input.strip():
+                    # Add user message
+                    st.session_state.ai_chat_history_full.append({"role": "user", "content": user_input})
+
+                    # Get response
+                    response = None
+                    try:
+                        ai_agent = get_ai_agent()
+                        api_key = ai_agent.config.get('groq_api_key', '')
+                        if api_key and 'your_free_groq_key' not in api_key and 'your' not in api_key.lower():
+                            with st.spinner("🤖 Thinking..."):
+                                response = ai_agent.query(user_input, context_data=df_updates if 'df_updates' in locals() else None)
+                    except Exception as e:
+                        pass
+
+                    if response is None:
+                        response = get_simple_ai_response(user_input, df_updates if 'df_updates' in locals() else None)
+
+                    st.session_state.ai_chat_history_full.append({"role": "assistant", "content": response})
+
+                    # Keep last 50 messages
+                    if len(st.session_state.ai_chat_history_full) > 50:
+                        st.session_state.ai_chat_history_full = st.session_state.ai_chat_history_full[-50:]
+
+                    st.rerun()
+
+    with col2:
+        st.markdown("### 💡 Quick Commands")
+
+        quick_commands = [
+            ("📊 Show summary", "Give me a summary of all properties"),
+            ("⚠️ Overdue", "Show overdue properties"),
+            ("✅ Completed", "How many completed properties?"),
+            ("🔄 In Progress", "What is in progress?"),
+            ("⏳ Pending", "Show pending properties"),
+            ("👷 Crews", "What crews are active?"),
+            ("📅 Due soon", "What is due soon?"),
+        ]
+
+        for label, command in quick_commands:
+            if st.button(label, use_container_width=True, key=f"quick_{label}"):
+                st.session_state.ai_chat_history_full.append({"role": "user", "content": command})
+                response = get_simple_ai_response(command, df_updates if 'df_updates' in locals() else None)
+                st.session_state.ai_chat_history_full.append({"role": "assistant", "content": response})
+                st.rerun()
+
+        st.markdown("---")
+
+        st.markdown("### 📈 Current Stats")
+        if df_updates is not None and not df_updates.empty:
+            total = len(df_updates)
+            if 'Category' in df_updates.columns:
+                completed = (df_updates['Category'] == '✅ Completed').sum()
+                overdue = (df_updates['Category'] == '❌ Overdue').sum()
+                in_progress = (df_updates['Category'] == '🔄 In Progress').sum()
+                pending = (df_updates['Category'] == '⏳ Pending / Bid').sum()
+
+                st.metric("Total Properties", total)
+                st.metric("✅ Completed", completed)
+                st.metric("❌ Overdue", overdue)
+                st.metric("🔄 In Progress", in_progress)
+                st.metric("⏳ Pending", pending)
+
+        st.markdown("---")
+
+        st.info("""
+        **💡 Tip:** You can also access me from any page using the 🤖 button 
+        in the bottom right corner!
+        """)
+
+# ----------------------------------------------------------------------
+# AI CHAT ASSISTANT WIDGET
+# =============================================================================
+
+# Initialize chat session state
+if 'ai_chat_open' not in st.session_state:
+    st.session_state.ai_chat_open = False
+if 'ai_chat_history' not in st.session_state:
+    st.session_state.ai_chat_history = []
+if 'ai_chat_input' not in st.session_state:
+    st.session_state.ai_chat_input = ""
+
+# Simple rule-based fallback responses (works without API)
+def get_simple_ai_response(user_message, df_updates):
+    """Simple rule-based AI response that works without API keys."""
+    message = user_message.lower()
+
+    # Greetings
+    if any(word in message for word in ['hello', 'hi', 'hey', 'greetings']):
+        return "👋 Hello! I'm your Property Preservation Assistant. I can help you find properties, check statuses, and answer questions about your dashboard. What would you like to know?"
+
+    # Help
+    if any(word in message for word in ['help', 'what can you do', 'capabilities']):
+        return """🤖 Here's what I can help you with:
+
+🔍 **Find Properties** - Search by name, address, crew, or status
+📊 **Check Status** - See counts of overdue, in-progress, completed properties
+⏰ **Due Dates** - Find properties due soon or already overdue
+👷 **Crew Info** - See which crews are assigned to which properties
+📈 **Insights** - Get quick analysis of your data
+
+Just ask me anything like "Show overdue properties" or "How many completed?"""
+
+    # Overdue properties
+    if any(word in message for word in ['overdue', 'late', 'behind']):
+        if df_updates is not None and not df_updates.empty and 'Category' in df_updates.columns:
+            overdue = df_updates[df_updates['Category'] == '❌ Overdue']
+            count = len(overdue)
+            if count > 0:
+                props = overdue.head(3)['Property'].tolist() if 'Property' in overdue.columns else []
+                prop_list = ', '.join(props) if props else 'N/A'
+                return f"⚠️ You have **{count} overdue properties**!\n\nTop overdue:\n{prop_list}\n\nPlease prioritize these!"
+            else:
+                return "✅ Great news! No overdue properties right now."
+        return "I don't have property data loaded yet. Please wait for the data to load."
+
+    # Completed properties
+    if any(word in message for word in ['completed', 'done', 'finished']):
+        if df_updates is not None and not df_updates.empty and 'Category' in df_updates.columns:
+            completed = df_updates[df_updates['Category'] == '✅ Completed']
+            count = len(completed)
+            return f"✅ You have **{count} completed properties**. Great work!"
+        return "I don't have property data loaded yet."
+
+    # In progress
+    if any(word in message for word in ['in progress', 'working', 'active']):
+        if df_updates is not None and not df_updates.empty and 'Category' in df_updates.columns:
+            in_progress = df_updates[df_updates['Category'] == '🔄 In Progress']
+            count = len(in_progress)
+            return f"🔄 You have **{count} properties in progress**."
+        return "I don't have property data loaded yet."
+
+    # Pending
+    if any(word in message for word in ['pending', 'bid', 'waiting']):
+        if df_updates is not None and not df_updates.empty and 'Category' in df_updates.columns:
+            pending = df_updates[df_updates['Category'] == '⏳ Pending / Bid']
+            count = len(pending)
+            return f"⏳ You have **{count} properties pending/bid**."
+        return "I don't have property data loaded yet."
+
+    # Total count
+    if any(word in message for word in ['total', 'how many', 'count', 'all properties']):
+        if df_updates is not None and not df_updates.empty:
+            total = len(df_updates)
+            if 'Category' in df_updates.columns:
+                completed = (df_updates['Category'] == '✅ Completed').sum()
+                overdue = (df_updates['Category'] == '❌ Overdue').sum()
+                in_progress = (df_updates['Category'] == '🔄 In Progress').sum()
+                pending = (df_updates['Category'] == '⏳ Pending / Bid').sum()
+                return f"📊 **Property Summary:**\n\n• Total: {total}\n• ✅ Completed: {completed}\n• ❌ Overdue: {overdue}\n• 🔄 In Progress: {in_progress}\n• ⏳ Pending/Bid: {pending}"
+            return f"📊 You have **{total} properties** in total."
+        return "I don't have property data loaded yet."
+
+    # Crew info
+    if any(word in message for word in ['crew', 'team', 'vendors']):
+        if df_updates is not None and not df_updates.empty and 'CREW NAME' in df_updates.columns:
+            crews = df_updates['CREW NAME'].dropna().unique()
+            crew_count = len(crews)
+            crew_list = ', '.join(crews[:5]) if crew_count > 0 else 'N/A'
+            return f"👷 **Active Crews: {crew_count}**\n\nCrews: {crew_list}{'...' if crew_count > 5 else ''}"
+        return "I don't have crew data loaded yet."
+
+    # Search for specific property
+    if any(word in message for word in ['find', 'search', 'look for', 'where is']):
+        if df_updates is not None and not df_updates.empty and 'Property' in df_updates.columns:
+            # Try to extract property name from message
+            for _, row in df_updates.iterrows():
+                prop_name = str(row.get('Property', '')).lower()
+                if prop_name and any(part in message for part in prop_name.split() if len(part) > 3):
+                    status = row.get('Status 1', row.get('Category', 'Unknown'))
+                    crew = row.get('CREW NAME', 'Not assigned')
+                    due = row.get('Due date', 'No due date')
+                    return f"🏠 **{row.get('Property', 'Property')}**\n\n📊 Status: {status}\n👷 Crew: {crew}\n📅 Due: {due}"
+        return "I couldn't find a specific property. Try using the search box in the sidebar!"
+
+    # Due soon
+    if any(word in message for word in ['due soon', 'upcoming', 'this week']):
+        if df_updates is not None and not df_updates.empty and 'Days Until Due' in df_updates.columns:
+            due_soon = df_updates[(df_updates['Days Until Due'] >= 0) & (df_updates['Days Until Due'] <= 7)]
+            count = len(due_soon)
+            if count > 0:
+                return f"⏰ **{count} properties due within 7 days!** Stay on top of these deadlines."
+            return "✅ No properties due within the next 7 days."
+        return "I need the data to load first to check due dates."
+
+    # Default response
+    return """🤔 I'm not sure I understood that. Try asking me:
+
+• "Show overdue properties"
+• "How many completed?"
+• "What crews are active?"
+• "Give me a summary"
+• "Help" for more options
+
+Or use the search box in the sidebar to find specific properties!"""
+
+# AI Chat Widget UI - Floating Button
+st.markdown("""
+<style>
+    div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stHorizontalBlock"]):last-child {
+        position: fixed !important;
+        bottom: 30px !important;
+        right: 30px !important;
+        z-index: 9999 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Create columns for the floating button
+float_col = st.columns([10, 1])
+with float_col[1]:
+    if st.button("🤖", key="ai_chat_toggle_btn", help="💬 Click to chat with AI Assistant", 
+                 type="primary", use_container_width=True):
+        st.session_state.ai_chat_open = not st.session_state.ai_chat_open
+        st.rerun()
+
+# Chat Window
+if st.session_state.ai_chat_open:
+    st.markdown("---")
+    st.markdown("### 🤖 Preservation Pal - AI Assistant")
+
+    # Chat container with custom styling
+    chat_container = st.container()
+    with chat_container:
+        # Welcome message if no history
+        if not st.session_state.ai_chat_history:
+            st.info("""👋 **Hi! I'm Preservation Pal, your AI assistant!**
+
+I can help you with:
+• 🔍 Finding properties by name, crew, or status
+• 📊 Checking counts (overdue, completed, in-progress)
+• 👷 Viewing crew assignments
+• 📈 Getting data insights
+
+**Try asking:**
+- "Show overdue properties"
+- "How many completed?"
+- "Give me a summary"
+- "What crews are active?"
+            """)
+
+        # Display chat history
+        for msg in st.session_state.ai_chat_history:
+            if msg['role'] == 'user':
+                st.markdown(f"**You:** {msg['content']}")
+            else:
+                st.markdown(f"🤖 **Preservation Pal:** {msg['content']}")
+
+        # Chat Input Form
+        with st.form(key="ai_chat_form", clear_on_submit=True):
+            user_input = st.text_input("💬 Type your message...", 
+                                      key="chat_input_field", 
+                                      label_visibility="collapsed",
+                                      placeholder="Ask about properties, crews, statuses...")
+
+            col1, col2, col3 = st.columns([3, 3, 2])
+            with col1:
+                submit = st.form_submit_button("📤 Send Message", use_container_width=True, type="primary")
+            with col2:
+                if st.form_submit_button("🗑️ Clear Chat", use_container_width=True):
+                    st.session_state.ai_chat_history = []
+                    st.rerun()
+            with col3:
+                if st.form_submit_button("❌ Close", use_container_width=True):
+                    st.session_state.ai_chat_open = False
+                    st.rerun()
+
+            if submit and user_input.strip():
+                # Add user message to history
+                st.session_state.ai_chat_history.append({"role": "user", "content": user_input})
+
+                # Get AI response (try API first, fallback to rule-based)
+                response = None
+                try:
+                    # Try to use the AI agent if API key is configured properly
+                    ai_agent = get_ai_agent()
+                    api_key = ai_agent.config.get('groq_api_key', '')
+                    if api_key and 'your_free_groq_key' not in api_key and 'your' not in api_key.lower():
+                        with st.spinner("🤖 Thinking..."):
+                            response = ai_agent.query(user_input, context_data=df_updates if 'df_updates' in locals() else None)
+                except Exception as e:
+                    pass  # Will use fallback
+
+                # Use rule-based fallback if API failed or not configured
+                if response is None:
+                    response = get_simple_ai_response(user_input, df_updates if 'df_updates' in locals() else None)
+
+                # Add assistant response to history
+                st.session_state.ai_chat_history.append({"role": "assistant", "content": response})
+
+                # Keep only last 20 messages
+                if len(st.session_state.ai_chat_history) > 20:
+                    st.session_state.ai_chat_history = st.session_state.ai_chat_history[-20:]
+
+                st.rerun()
+
+    st.markdown("---")
+
+# =============================================================================
 
 # ----------------------------------------------------------------------
 # Footer
