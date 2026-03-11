@@ -1651,7 +1651,7 @@ if st.session_state.active_tab == "Dashboard":
         in_progress = (df_updates["Category"] == "🔄 In Progress").sum()
         pending = (df_updates["Category"] == "⏳ Pending / Bid").sum()
         completion_rate = round((completed / total * 100), 1) if total > 0 else 0
-        active_crews = df_updates["CREW NAME"].dropna().nunique()
+        active_crews = df_updates["CREW NAME"].dropna().nunique()#
         
         # KPI Cards Row
         st.markdown("<h3 style='margin-bottom: 20px;'>📊 Key Performance Indicators</h3>", unsafe_allow_html=True)
